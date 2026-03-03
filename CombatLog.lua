@@ -1,0 +1,253 @@
+------------------------------------------------------------------------
+-- Epic Damage Meter V2
+-- CombatLog.lua – COMBAT_LOG_EVENT_UNFILTERED parsing
+------------------------------------------------------------------------
+
+local _, EDM = ...
+
+------------------------------------------------------------------------
+-- Combat log event registration
+------------------------------------------------------------------------
+
+local combatFrame = CreateFrame("Frame")
+
+function EDM:RegisterCombatLog()
+    combatFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+    combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+    combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    combatFrame:RegisterEvent("ENCOUNTER_START")
+    combatFrame:RegisterEvent("ENCOUNTER_END")
+    combatFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+    combatFrame:RegisterEvent("UNIT_PET")
+
+    combatFrame:SetScript("OnEvent", function(_, event, ...)
+        if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+            EDM:OnCombatLogEvent()
+        elseif event == "PLAYER_REGEN_DISABLED" then
+            EDM:StartCombat()
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            -- Slight delay to catch final damage events
+            C_Timer.After(0.5, function()
+                EDM:EndCombat()
+            end)
+        elseif event == "ENCOUNTER_START" then
+            local encounterID, encounterName = ...
+            EDM:StartCombat()
+            if EDM.currentSegment and encounterName then
+                EDM.currentSegment.name = encounterName
+            end
+        elseif event == "ENCOUNTER_END" then
+            EDM:EndCombat()
+        elseif event == "GROUP_ROSTER_UPDATE" then
+            EDM:ScanGroupMembers()
+        elseif event == "UNIT_PET" then
+            EDM:ScanPets()
+        end
+    end)
+
+    -- Initial group scan
+    self:ScanGroupMembers()
+    self:ScanPets()
+end
+
+------------------------------------------------------------------------
+-- Group scanning for class information
+------------------------------------------------------------------------
+
+function EDM:ScanGroupMembers()
+    if not self.classCache then self.classCache = {} end
+
+    local prefix, count
+    if IsInRaid() then
+        prefix, count = "raid", GetNumGroupMembers()
+    elseif IsInGroup() then
+        prefix, count = "party", GetNumGroupMembers() - 1
+    else
+        -- Solo – cache the player
+        local guid = UnitGUID("player")
+        local _, class = UnitClass("player")
+        if guid and class then
+            self.classCache[guid] = class
+        end
+        return
+    end
+
+    for i = 1, count do
+        local unit = prefix .. i
+        local guid = UnitGUID(unit)
+        local _, class = UnitClass(unit)
+        if guid and class then
+            self.classCache[guid] = class
+        end
+    end
+
+    -- Always add player
+    local guid = UnitGUID("player")
+    local _, class = UnitClass("player")
+    if guid and class then
+        self.classCache[guid] = class
+    end
+end
+
+function EDM:ScanPets()
+    if not self.petOwners then self.petOwners = {} end
+
+    local prefix, count
+    if IsInRaid() then
+        prefix, count = "raid", GetNumGroupMembers()
+    elseif IsInGroup() then
+        prefix, count = "party", GetNumGroupMembers() - 1
+    else
+        prefix, count = nil, 0
+    end
+
+    -- Player pet
+    local petGUID = UnitGUID("pet")
+    local playerGUID = UnitGUID("player")
+    if petGUID and playerGUID then
+        self.petOwners[petGUID] = playerGUID
+    end
+
+    if prefix then
+        for i = 1, count do
+            local petUnit = prefix .. "pet" .. i
+            local ownerUnit = prefix .. i
+            local pGUID = UnitGUID(petUnit)
+            local oGUID = UnitGUID(ownerUnit)
+            if pGUID and oGUID then
+                self.petOwners[pGUID] = oGUID
+            end
+        end
+    end
+end
+
+------------------------------------------------------------------------
+-- Class lookup
+------------------------------------------------------------------------
+
+function EDM:LookupClass(guid)
+    if not guid then return "UNKNOWN" end
+    if self.classCache and self.classCache[guid] then
+        return self.classCache[guid]
+    end
+
+    -- Try to extract from GUID (Player-Server-ID format)
+    local _, class = GetPlayerInfoByGUID(guid)
+    if class and class ~= "" then
+        if not self.classCache then self.classCache = {} end
+        self.classCache[guid] = class
+        return class
+    end
+
+    return "UNKNOWN"
+end
+
+------------------------------------------------------------------------
+-- CLEU parsing
+------------------------------------------------------------------------
+
+-- Sub-events that represent damage
+local DAMAGE_EVENTS = {
+    SWING_DAMAGE           = true,
+    RANGE_DAMAGE           = true,
+    SPELL_DAMAGE           = true,
+    SPELL_PERIODIC_DAMAGE  = true,
+    DAMAGE_SHIELD           = true,
+    SPELL_BUILDING_DAMAGE  = true,
+}
+
+-- Sub-events that represent healing
+local HEALING_EVENTS = {
+    SPELL_HEAL             = true,
+    SPELL_PERIODIC_HEAL    = true,
+}
+
+-- Sub-events that indicate combat start (for auto-detection)
+local COMBAT_START_EVENTS = {
+    SWING_DAMAGE          = true,
+    RANGE_DAMAGE          = true,
+    SPELL_DAMAGE          = true,
+    SPELL_PERIODIC_DAMAGE = true,
+    SPELL_CAST_SUCCESS    = true,
+}
+
+function EDM:OnCombatLogEvent()
+    local timestamp, subevent, hideCaster,
+          sourceGUID, sourceName, sourceFlags, sourceRaidFlags,
+          destGUID, destName, destFlags, destRaidFlags = CombatLogGetCurrentEventInfo()
+
+    -- Only process events from friendly players/pets
+    if not self:IsFriendlyPlayer(sourceFlags) then return end
+
+    ---------------------------------------------------------------
+    -- Damage events
+    ---------------------------------------------------------------
+    if DAMAGE_EVENTS[subevent] then
+        local spellId, spellName, spellSchool
+        local amount, overkill, school, resisted, blocked, absorbed, critical
+
+        if subevent == "SWING_DAMAGE" then
+            -- Swing damage: params start at position 12
+            spellId   = 0
+            spellName = "Nahkampf"
+            amount, overkill, school, resisted, blocked, absorbed, critical =
+                select(12, CombatLogGetCurrentEventInfo())
+        else
+            -- Spell/Range/Shield damage: spellId, spellName, spellSchool, then damage params
+            spellId, spellName, spellSchool, amount, overkill, school, resisted, blocked, absorbed, critical =
+                select(12, CombatLogGetCurrentEventInfo())
+        end
+
+        if not amount or amount <= 0 then return end
+
+        -- Auto-start combat if not yet in combat
+        if not self.inCombat then
+            self:StartCombat()
+        end
+
+        -- Resolve source for pets
+        local resolvedGUID = sourceGUID
+        local resolvedName = sourceName
+        local resolvedClass = "UNKNOWN"
+
+        if bit.band(sourceFlags, self.TYPE_PET) ~= 0 then
+            local ownerGUID = self:ResolvePetOwner(sourceGUID, sourceName, sourceFlags)
+            if ownerGUID and self.db.mergePets then
+                resolvedGUID = ownerGUID
+                resolvedClass = self:LookupClass(ownerGUID)
+                -- Keep the pet tracked separately but mark the owner
+                self:SetPetOwner(sourceGUID, ownerGUID)
+            end
+            -- Record under the actual pet GUID; merging happens at display time
+            resolvedGUID = sourceGUID
+            resolvedClass = self:LookupClass(sourceGUID)
+        else
+            resolvedClass = self:LookupClass(sourceGUID)
+        end
+
+        self:RecordDamage(sourceGUID, sourceName, resolvedClass, spellId, spellName, amount, critical, destName)
+
+    ---------------------------------------------------------------
+    -- Healing events
+    ---------------------------------------------------------------
+    elseif HEALING_EVENTS[subevent] then
+        local spellId, spellName, spellSchool, amount, overhealing, absorbed, critical =
+            select(12, CombatLogGetCurrentEventInfo())
+
+        if not amount or amount <= 0 then return end
+
+        -- Subtract overhealing from effective healing
+        local effectiveHealing = amount - (overhealing or 0)
+        if effectiveHealing <= 0 then return end
+
+        local resolvedClass = "UNKNOWN"
+        if bit.band(sourceFlags, self.TYPE_PET) ~= 0 then
+            self:ResolvePetOwner(sourceGUID, sourceName, sourceFlags)
+            resolvedClass = self:LookupClass(sourceGUID)
+        else
+            resolvedClass = self:LookupClass(sourceGUID)
+        end
+
+        self:RecordHealing(sourceGUID, sourceName, resolvedClass, spellId, spellName, effectiveHealing, overhealing, critical)
+    end
+end
