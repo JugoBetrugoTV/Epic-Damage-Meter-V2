@@ -249,8 +249,19 @@ function EDM:OnPlayerLogin()
     self:RegisterSlashCommands()
     InitMinimapButton()
 
-    local versionInfo = self.isClassic and " (Classic)" or " (Retail)"
-    self:Print("v" .. self.VERSION .. versionInfo .. " geladen. /edm fuer Hilfe.")
+    local versionInfo
+    if self.isRetail then
+        versionInfo = "Retail"
+    elseif self.isMoP then
+        versionInfo = "MoP Classic"
+    elseif self.isTBC then
+        versionInfo = "TBC Anniversary"
+    elseif self.isClassic then
+        versionInfo = "Classic"
+    else
+        versionInfo = "Unbekannt"
+    end
+    self:Print("v" .. self.VERSION .. " (" .. versionInfo .. ") geladen. /edm fuer Hilfe.")
 end
 
 function EDM:OnPlayerLogout()

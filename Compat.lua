@@ -16,13 +16,10 @@ local _, EDM = ...
 local _, _, _, tocVersion = GetBuildInfo()
 
 EDM.tocVersion = tocVersion
-EDM.isRetail   = (tocVersion >= 100000)                         -- 10.0+
-EDM.isMoP      = (tocVersion >= 50000 and tocVersion < 60000)   -- 5.x
-EDM.isCata     = (tocVersion >= 40000 and tocVersion < 50000)   -- 4.x
-EDM.isWrath    = (tocVersion >= 30000 and tocVersion < 40000)   -- 3.x
-EDM.isTBC      = (tocVersion >= 20000 and tocVersion < 30000)   -- 2.x
-EDM.isVanilla  = (tocVersion < 20000)                           -- 1.x
-EDM.isClassic  = not EDM.isRetail
+EDM.isRetail   = (tocVersion >= 100000)                         -- Midnight 12.0.1+
+EDM.isMoP      = (tocVersion >= 50000 and tocVersion < 60000)   -- MoP Classic 5.x
+EDM.isTBC      = (tocVersion >= 20000 and tocVersion < 30000)   -- TBC Anniversary 2.x
+EDM.isClassic  = (tocVersion < 20000)                           -- Classic Era 1.x
 
 ------------------------------------------------------------------------
 -- Frame compatibility
