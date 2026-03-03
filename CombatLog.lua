@@ -25,11 +25,14 @@ local isMidnight = (C_DamageMeter ~= nil)
 -- Event frame (used on all versions; Midnight uses RegisterEventCallback method)
 local eventFrame = CreateFrame("Frame")
 
+-- Forward-declare at file scope so RegisterCombatLog() can see it
+local RegisterSafeEvent
+
 if isMidnight then
     -- Midnight 12.0+: Frame:RegisterEventCallback(event, cb)
     -- New frame method that replaces Frame:RegisterEvent() for addon code.
     -- Global RegisterEventCallback() is only for NEW Midnight events.
-    local function RegisterSafeEvent(event, handler)
+    RegisterSafeEvent = function(event, handler)
         -- Try frame method first (works for traditional events)
         if eventFrame.RegisterEventCallback then
             eventFrame:RegisterEventCallback(event, handler)
@@ -38,7 +41,6 @@ if isMidnight then
             RegisterEventCallback(event, handler)
         end
     end
-    EDM.RegisterSafeEvent = RegisterSafeEvent
 else
     -- Classic/TBC/MoP: Frame:RegisterEvent + OnEvent dispatch
     local eventHandlers = {}
@@ -46,12 +48,14 @@ else
         local handler = eventHandlers[event]
         if handler then handler(...) end
     end)
-    local function RegisterSafeEvent(event, handler)
+    RegisterSafeEvent = function(event, handler)
         eventHandlers[event] = handler
         eventFrame:RegisterEvent(event)
     end
-    EDM.RegisterSafeEvent = RegisterSafeEvent
 end
+
+-- Expose for version modules
+EDM.RegisterSafeEvent = RegisterSafeEvent
 
 ------------------------------------------------------------------------
 -- Combat log event registration
