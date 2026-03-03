@@ -35,8 +35,9 @@ EDM.AFFILIATION_RAID  = COMBATLOG_OBJECT_AFFILIATION_RAID  or 0x00000004
 EDM.AFFILIATION_MASK  = bit.bor(EDM.AFFILIATION_MINE, EDM.AFFILIATION_PARTY, EDM.AFFILIATION_RAID)
 
 -- Type flags
-EDM.TYPE_PLAYER = COMBATLOG_OBJECT_TYPE_PLAYER or 0x00000400
-EDM.TYPE_PET    = COMBATLOG_OBJECT_TYPE_PET    or 0x00001000
+EDM.TYPE_PLAYER   = COMBATLOG_OBJECT_TYPE_PLAYER   or 0x00000400
+EDM.TYPE_PET      = COMBATLOG_OBJECT_TYPE_PET      or 0x00001000
+EDM.TYPE_GUARDIAN = COMBATLOG_OBJECT_TYPE_GUARDIAN or 0x00002000
 
 -- Class colors fallback (in case RAID_CLASS_COLORS is not loaded yet)
 EDM.CLASS_COLORS = {
@@ -111,6 +112,7 @@ function EDM:IsFriendlyPlayer(flags)
     if bit.band(flags, self.AFFILIATION_MASK) == 0 then return false end
     if bit.band(flags, self.TYPE_PLAYER) ~= 0 then return true end
     if bit.band(flags, self.TYPE_PET) ~= 0 then return true end
+    if bit.band(flags, self.TYPE_GUARDIAN) ~= 0 then return true end
     return false
 end
 

@@ -1,4 +1,4 @@
-## Interface: 110105
+## Interface: 120001
 ## Title: Epic Damage Meter V2
 ## Notes: A lightweight and powerful damage and healing meter for World of Warcraft.
 ## Notes-deDE: Ein leichtgewichtiges und leistungsstarkes Schadens- und Heilungsmeter für World of Warcraft.
@@ -7,6 +7,7 @@
 ## DefaultState: enabled
 ## SavedVariables: EpicDamageMeterDB
 ## IconTexture: Interface\Icons\Ability_Warrior_Bladestorm
+## Category: Combat
 
 Core.lua
 DataStore.lua

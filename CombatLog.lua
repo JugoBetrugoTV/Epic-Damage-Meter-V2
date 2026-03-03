@@ -210,16 +210,13 @@ function EDM:OnCombatLogEvent()
         local resolvedName = sourceName
         local resolvedClass = "UNKNOWN"
 
-        if bit.band(sourceFlags, self.TYPE_PET) ~= 0 then
+        local isPetOrGuardian = bit.band(sourceFlags, bit.bor(self.TYPE_PET, self.TYPE_GUARDIAN)) ~= 0
+        if isPetOrGuardian then
             local ownerGUID = self:ResolvePetOwner(sourceGUID, sourceName, sourceFlags)
-            if ownerGUID and self.db.mergePets then
-                resolvedGUID = ownerGUID
-                resolvedClass = self:LookupClass(ownerGUID)
-                -- Keep the pet tracked separately but mark the owner
+            if ownerGUID then
                 self:SetPetOwner(sourceGUID, ownerGUID)
             end
             -- Record under the actual pet GUID; merging happens at display time
-            resolvedGUID = sourceGUID
             resolvedClass = self:LookupClass(sourceGUID)
         else
             resolvedClass = self:LookupClass(sourceGUID)
@@ -241,8 +238,12 @@ function EDM:OnCombatLogEvent()
         if effectiveHealing <= 0 then return end
 
         local resolvedClass = "UNKNOWN"
-        if bit.band(sourceFlags, self.TYPE_PET) ~= 0 then
-            self:ResolvePetOwner(sourceGUID, sourceName, sourceFlags)
+        local isPetOrGuardian = bit.band(sourceFlags, bit.bor(self.TYPE_PET, self.TYPE_GUARDIAN)) ~= 0
+        if isPetOrGuardian then
+            local ownerGUID = self:ResolvePetOwner(sourceGUID, sourceName, sourceFlags)
+            if ownerGUID then
+                self:SetPetOwner(sourceGUID, ownerGUID)
+            end
             resolvedClass = self:LookupClass(sourceGUID)
         else
             resolvedClass = self:LookupClass(sourceGUID)
