@@ -18,27 +18,27 @@ function EDM:CreateDisplay()
     local db = self.db
 
     ----------------------------------------------------------------
-    -- Main container
+    -- Main container (uses Compat.lua for BackdropTemplate)
     ----------------------------------------------------------------
-    local frame = CreateFrame("Frame", "EpicDamageMeterFrame", UIParent, "BackdropTemplate")
+    local frame = self:CreateBackdropFrame("Frame", "EpicDamageMeterFrame", UIParent)
     frame:SetSize(db.width, db.height)
     frame:SetPoint(db.point, UIParent, db.relPoint, db.x, db.y)
-    frame:SetBackdrop({
-        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile     = true,
-        tileSize = 16,
-        edgeSize = 16,
-        insets   = { left = 4, right = 4, top = 4, bottom = 4 },
-    })
-    frame:SetBackdropColor(0.05, 0.05, 0.05, 0.85)
-    frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+    if frame.SetBackdrop then
+        frame:SetBackdrop({
+            bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile     = true,
+            tileSize = 16,
+            edgeSize = 16,
+            insets   = { left = 4, right = 4, top = 4, bottom = 4 },
+        })
+        frame:SetBackdropColor(0.05, 0.05, 0.05, 0.85)
+        frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+    end
     frame:SetClampedToScreen(true)
     frame:SetMovable(not db.locked)
     frame:SetResizable(true)
-    if frame.SetResizeBounds then
-        frame:SetResizeBounds(180, 80, 500, 800)
-    end
+    self:SetFrameResizeBounds(frame, 180, 80, 500, 800)
     frame:SetFrameStrata("MEDIUM")
     frame:SetFrameLevel(5)
 
@@ -53,16 +53,18 @@ function EDM:CreateDisplay()
     ----------------------------------------------------------------
     -- Title bar
     ----------------------------------------------------------------
-    local titleBar = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    local titleBar = self:CreateBackdropFrame("Frame", nil, frame)
     titleBar:SetHeight(20)
     titleBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4)
     titleBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
-    titleBar:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        tile   = true,
-        tileSize = 16,
-    })
-    titleBar:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
+    if titleBar.SetBackdrop then
+        titleBar:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            tile   = true,
+            tileSize = 16,
+        })
+        titleBar:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
+    end
 
     -- Make title bar the drag handle
     titleBar:EnableMouse(true)
@@ -123,7 +125,7 @@ function EDM:CreateDisplay()
     viewBar:SetPoint("TOPRIGHT", titleBar, "BOTTOMRIGHT", 0, -1)
 
     for i, v in ipairs(views) do
-        local btn = CreateFrame("Button", nil, viewBar, "BackdropTemplate")
+        local btn = self:CreateBackdropFrame("Button", nil, viewBar)
         btn:SetSize(viewBtnWidth, viewBtnHeight)
         if i == 1 then
             btn:SetPoint("LEFT", viewBar, "LEFT", 0, 0)
@@ -131,10 +133,12 @@ function EDM:CreateDisplay()
             btn:SetPoint("LEFT", self.viewButtons[i - 1], "RIGHT", 1, 0)
         end
 
-        btn:SetBackdrop({
-            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-            tile   = true, tileSize = 16,
-        })
+        if btn.SetBackdrop then
+            btn:SetBackdrop({
+                bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+                tile   = true, tileSize = 16,
+            })
+        end
 
         local text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         text:SetPoint("CENTER")
@@ -149,13 +153,17 @@ function EDM:CreateDisplay()
         end)
 
         btn:SetScript("OnEnter", function(self)
-            self:SetBackdropColor(0.3, 0.3, 0.3, 0.9)
+            if self.SetBackdropColor then
+                self:SetBackdropColor(0.3, 0.3, 0.3, 0.9)
+            end
         end)
         btn:SetScript("OnLeave", function(self)
-            if db.currentView == v.mode then
-                self:SetBackdropColor(0.2, 0.2, 0.6, 0.9)
-            else
-                self:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
+            if self.SetBackdropColor then
+                if db.currentView == v.mode then
+                    self:SetBackdropColor(0.2, 0.2, 0.6, 0.9)
+                else
+                    self:SetBackdropColor(0.15, 0.15, 0.15, 0.9)
+                end
             end
         end)
 
@@ -248,6 +256,7 @@ end
 
 function EDM:UpdateViewButtons()
     for _, btn in ipairs(self.viewButtons) do
+        if not btn.SetBackdropColor then break end
         if self.db.currentView == btn.mode then
             btn:SetBackdropColor(0.2, 0.2, 0.6, 0.9)
             btn.text:SetTextColor(1, 1, 1)
@@ -295,7 +304,8 @@ end
 function EDM:CreateSingleBar(parent, index)
     local db = self.db
 
-    local bar = CreateFrame("StatusBar", nil, parent, "BackdropTemplate")
+    -- StatusBar with optional BackdropTemplate
+    local bar = self:CreateBackdropFrame("StatusBar", nil, parent)
     bar:SetStatusBarTexture(db.barTexture)
     bar:SetMinMaxValues(0, 100)
     bar:SetValue(0)
@@ -466,7 +476,7 @@ function EDM:ShowBarTooltip(bar)
 
     if #abilities > 0 then
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("Top Fähigkeiten:", 1, 0.82, 0)
+        GameTooltip:AddLine("Top Faehigkeiten:", 1, 0.82, 0)
 
         local totalAbilityValue = 0
         for _, a in ipairs(abilities) do
@@ -489,7 +499,7 @@ function EDM:ShowBarTooltip(bar)
 end
 
 ------------------------------------------------------------------------
--- Context menu (right-click)
+-- Context menu (right-click) – auto-selects MenuUtil or UIDropDownMenu
 ------------------------------------------------------------------------
 
 function EDM:CreateContextMenu()
@@ -503,69 +513,68 @@ function EDM:CreateContextMenu()
 end
 
 function EDM:ShowContextMenu()
-    -- Use the new MenuUtil API if available, fall back to dropdown
-    if MenuUtil and MenuUtil.CreateContextMenu then
-        MenuUtil.CreateContextMenu(self.mainFrame, function(ownerRegion, rootDescription)
-            rootDescription:CreateTitle("Epic Damage Meter V2")
-
-            -- Segment selection
-            local segmentMenu = rootDescription:CreateButton("Segmente")
-
-            -- View selection
-            for mode, label in pairs(EDM.VIEW_LABELS) do
-                local btn = rootDescription:CreateRadio(label,
-                    function() return self.db.currentView == mode end,
-                    function()
-                        self.db.currentView = mode
-                        self:UpdateViewButtons()
-                        self:UpdateDisplay()
-                    end
-                )
-            end
-
-            rootDescription:CreateDivider()
-
-            rootDescription:CreateCheckbox(
-                "Fenster sperren",
-                function() return self.db.locked end,
-                function()
-                    self.db.locked = not self.db.locked
-                    self.mainFrame:SetMovable(not self.db.locked)
-                end
-            )
-
-            rootDescription:CreateCheckbox(
-                "Pets zusammenführen",
-                function() return self.db.mergePets end,
-                function()
-                    self.db.mergePets = not self.db.mergePets
-                    self:UpdateDisplay()
-                end
-            )
-
-            rootDescription:CreateCheckbox(
-                "Rang anzeigen",
-                function() return self.db.showRank end,
-                function()
-                    self.db.showRank = not self.db.showRank
-                    self:UpdateDisplay()
-                end
-            )
-
-            rootDescription:CreateDivider()
-
-            rootDescription:CreateButton("Daten zurücksetzen", function()
-                EDM:ResetData()
-            end)
-
-            rootDescription:CreateButton("Chat-Report", function()
-                EDM:ReportToChat("say")
-            end)
-        end)
+    if self.hasMenuUtil then
+        self:ShowMenuUtilContext()
     else
-        -- Legacy dropdown fallback
         self:ShowLegacyContextMenu()
     end
+end
+
+function EDM:ShowMenuUtilContext()
+    MenuUtil.CreateContextMenu(self.mainFrame, function(ownerRegion, rootDescription)
+        rootDescription:CreateTitle("Epic Damage Meter V2")
+
+        -- View selection
+        for mode, label in pairs(EDM.VIEW_LABELS) do
+            rootDescription:CreateRadio(label,
+                function() return self.db.currentView == mode end,
+                function()
+                    self.db.currentView = mode
+                    self:UpdateViewButtons()
+                    self:UpdateDisplay()
+                end
+            )
+        end
+
+        rootDescription:CreateDivider()
+
+        rootDescription:CreateCheckbox(
+            "Fenster sperren",
+            function() return self.db.locked end,
+            function()
+                self.db.locked = not self.db.locked
+                self.mainFrame:SetMovable(not self.db.locked)
+            end
+        )
+
+        rootDescription:CreateCheckbox(
+            "Pets zusammenfuehren",
+            function() return self.db.mergePets end,
+            function()
+                self.db.mergePets = not self.db.mergePets
+                self:UpdateDisplay()
+            end
+        )
+
+        rootDescription:CreateCheckbox(
+            "Rang anzeigen",
+            function() return self.db.showRank end,
+            function()
+                self.db.showRank = not self.db.showRank
+                self:UpdateDisplay()
+            end
+        )
+
+        rootDescription:CreateDivider()
+
+        rootDescription:CreateButton("Daten zuruecksetzen", function()
+            EDM:ResetData()
+        end)
+
+        rootDescription:CreateButton("Chat-Report", function()
+            EDM:ReportToChat("say")
+        end)
+    end)
 end
 
 function EDM:ShowLegacyContextMenu()
@@ -616,7 +625,7 @@ function EDM:ShowLegacyContextMenu()
 
             -- Merge pets
             info = UIDropDownMenu_CreateInfo()
-            info.text = "Pets zusammenführen"
+            info.text = "Pets zusammenfuehren"
             info.checked = self.db.mergePets
             info.func = function()
                 self.db.mergePets = not self.db.mergePets
@@ -626,7 +635,7 @@ function EDM:ShowLegacyContextMenu()
 
             -- Reset
             info = UIDropDownMenu_CreateInfo()
-            info.text = "Daten zurücksetzen"
+            info.text = "Daten zuruecksetzen"
             info.notCheckable = true
             info.func = function() EDM:ResetData() end
             UIDropDownMenu_AddButton(info, level)
@@ -640,7 +649,7 @@ function EDM:ShowLegacyContextMenu()
 
             -- Close
             info = UIDropDownMenu_CreateInfo()
-            info.text = "Schließen"
+            info.text = "Schliessen"
             info.notCheckable = true
             info.func = function() CloseDropDownMenus() end
             UIDropDownMenu_AddButton(info, level)

@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------
 -- Epic Damage Meter V2
--- Core.lua – Addon namespace, utilities, and initialization
+-- Core.lua – Addon namespace, library integration, and initialization
 ------------------------------------------------------------------------
 
 local ADDON_NAME, EDM = ...
@@ -12,7 +12,7 @@ EpicDamageMeter = EDM
 -- Constants
 ------------------------------------------------------------------------
 
-EDM.VERSION = "2.0.0"
+EDM.VERSION    = "2.0.0"
 EDM.ADDON_NAME = ADDON_NAME
 
 -- View modes
@@ -58,10 +58,44 @@ EDM.CLASS_COLORS = {
 }
 
 ------------------------------------------------------------------------
--- Default saved‑variable settings
+-- Library references (populated on ADDON_LOADED)
+------------------------------------------------------------------------
+
+EDM.AceDB      = nil   -- AceDB-3.0
+EDM.LSM        = nil   -- LibSharedMedia-3.0
+EDM.LDB        = nil   -- LibDataBroker-1.1
+EDM.LDBIcon    = nil   -- LibDBIcon-1.0
+
+------------------------------------------------------------------------
+-- Default saved-variable settings
 ------------------------------------------------------------------------
 
 EDM.DEFAULTS = {
+    profile = {
+        point         = "RIGHT",
+        relPoint      = "RIGHT",
+        x             = -20,
+        y             = 0,
+        width         = 260,
+        height        = 300,
+        numBars       = 15,
+        barHeight     = 18,
+        barSpacing    = 1,
+        barTexture    = "Interface\\TargetingFrame\\UI-StatusBar",
+        font          = "Fonts\\FRIZQT__.TTF",
+        fontSize      = 10,
+        locked        = false,
+        shown         = true,
+        currentView   = 1,     -- VIEW_DAMAGE
+        showRank      = true,
+        mergePets     = true,
+        minimap       = { hide = false },
+        classColors   = true,
+    },
+}
+
+-- Flat defaults fallback (when AceDB is not available)
+EDM.DEFAULTS_FLAT = {
     point         = "RIGHT",
     relPoint      = "RIGHT",
     x             = -20,
@@ -76,10 +110,10 @@ EDM.DEFAULTS = {
     fontSize      = 10,
     locked        = false,
     shown         = true,
-    currentView   = 1,     -- VIEW_DAMAGE
+    currentView   = 1,
     showRank      = true,
     mergePets     = true,
-    minimap       = true,
+    minimap       = { hide = false },
     classColors   = true,
 }
 
@@ -87,14 +121,7 @@ EDM.DEFAULTS = {
 -- Utility functions
 ------------------------------------------------------------------------
 
-function EDM:GetClassColor(class)
-    if RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] then
-        local c = RAID_CLASS_COLORS[class]
-        return c.r, c.g, c.b
-    end
-    local c = self.CLASS_COLORS[class] or self.CLASS_COLORS.UNKNOWN
-    return c.r, c.g, c.b
-end
+-- GetClassColor is defined in Compat.lua
 
 function EDM:FormatNumber(num)
     if num >= 1e9 then
@@ -121,6 +148,77 @@ function EDM:Print(msg)
 end
 
 ------------------------------------------------------------------------
+-- Library initialization
+------------------------------------------------------------------------
+
+local function InitLibraries()
+    -- AceDB-3.0 for profile-based saved variables
+    EDM.AceDB = EDM:GetLib("AceDB-3.0")
+
+    -- LibSharedMedia-3.0 for bar textures and fonts
+    EDM.LSM = EDM:GetLib("LibSharedMedia-3.0")
+    if EDM.LSM then
+        EDM.LSM:Register("statusbar", "EDM Default", "Interface\\TargetingFrame\\UI-StatusBar")
+    end
+
+    -- LibDataBroker-1.1 for data display
+    EDM.LDB = EDM:GetLib("LibDataBroker-1.1")
+
+    -- LibDBIcon-1.0 for minimap button
+    EDM.LDBIcon = EDM:GetLib("LibDBIcon-1.0")
+end
+
+local function InitSavedVariables()
+    if EDM.AceDB then
+        -- AceDB: full profile support (per-spec, per-char, defaults, etc.)
+        EDM.acedb = EDM.AceDB:New("EpicDamageMeterDB", EDM.DEFAULTS, true)
+        EDM.db = EDM.acedb.profile
+    else
+        -- Fallback: simple global table
+        if not EpicDamageMeterDB then
+            EpicDamageMeterDB = {}
+        end
+        for k, v in pairs(EDM.DEFAULTS_FLAT) do
+            if EpicDamageMeterDB[k] == nil then
+                if type(v) == "table" then
+                    EpicDamageMeterDB[k] = {}
+                    for kk, vv in pairs(v) do
+                        EpicDamageMeterDB[k][kk] = vv
+                    end
+                else
+                    EpicDamageMeterDB[k] = v
+                end
+            end
+        end
+        EDM.db = EpicDamageMeterDB
+    end
+end
+
+local function InitMinimapButton()
+    if not EDM.LDB or not EDM.LDBIcon then return end
+
+    local dataObj = EDM.LDB:NewDataObject("EpicDamageMeter", {
+        type  = "launcher",
+        icon  = "Interface\\Icons\\Ability_Warrior_Bladestorm",
+        label = "Epic Damage Meter",
+        OnClick = function(_, button)
+            if button == "LeftButton" then
+                EDM:ToggleWindow()
+            elseif button == "RightButton" then
+                EDM:ResetData()
+            end
+        end,
+        OnTooltipShow = function(tooltip)
+            tooltip:AddLine("Epic Damage Meter V2")
+            tooltip:AddLine("|cff00ff00Linksklick|r: Fenster ein/ausblenden")
+            tooltip:AddLine("|cffff0000Rechtsklick|r: Daten zuruecksetzen")
+        end,
+    })
+
+    EDM.LDBIcon:Register("EpicDamageMeter", dataObj, EDM.db.minimap)
+end
+
+------------------------------------------------------------------------
 -- Initialization
 ------------------------------------------------------------------------
 
@@ -129,12 +227,13 @@ eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_LOGOUT")
 
-eventFrame:SetScript("OnEvent", function(self, event, ...)
+eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" then
         local name = ...
         if name == ADDON_NAME then
-            EDM:OnAddonLoaded()
-            self:UnregisterEvent("ADDON_LOADED")
+            InitLibraries()
+            InitSavedVariables()
+            eventFrame:UnregisterEvent("ADDON_LOADED")
         end
     elseif event == "PLAYER_LOGIN" then
         EDM:OnPlayerLogin()
@@ -143,26 +242,15 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     end
 end)
 
-function EDM:OnAddonLoaded()
-    -- Initialize saved variables
-    if not EpicDamageMeterDB then
-        EpicDamageMeterDB = {}
-    end
-    -- Merge defaults into saved variables
-    for k, v in pairs(self.DEFAULTS) do
-        if EpicDamageMeterDB[k] == nil then
-            EpicDamageMeterDB[k] = v
-        end
-    end
-    self.db = EpicDamageMeterDB
-end
-
 function EDM:OnPlayerLogin()
     self:InitDataStore()
     self:CreateDisplay()
     self:RegisterCombatLog()
     self:RegisterSlashCommands()
-    self:Print("v" .. self.VERSION .. " geladen. /edm für Hilfe.")
+    InitMinimapButton()
+
+    local versionInfo = self.isClassic and " (Classic)" or " (Retail)"
+    self:Print("v" .. self.VERSION .. versionInfo .. " geladen. /edm fuer Hilfe.")
 end
 
 function EDM:OnPlayerLogout()

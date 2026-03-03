@@ -1,0 +1,10 @@
+# Embedded libraries (fetched via .pkgmeta or fetch_libs.sh)
+Libs/LibStub/
+Libs/CallbackHandler-1.0/
+Libs/AceAddon-3.0/
+Libs/AceDB-3.0/
+Libs/AceEvent-3.0/
+Libs/AceConsole-3.0/
+Libs/LibSharedMedia-3.0/
+Libs/LibDataBroker-1.1/
+Libs/LibDBIcon-1.0/
