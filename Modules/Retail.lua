@@ -94,9 +94,13 @@ end
 -- Version events: ENCOUNTER_START / ENCOUNTER_END
 ------------------------------------------------------------------------
 
-function EDM:RegisterVersionEvents(frame)
-    frame:RegisterEvent("ENCOUNTER_START")
-    frame:RegisterEvent("ENCOUNTER_END")
+function EDM:RegisterVersionEvents()
+    EDM.RegisterSafeEventWithArgs("ENCOUNTER_START", function(...)
+        EDM:HandleVersionEvent("ENCOUNTER_START", ...)
+    end)
+    EDM.RegisterSafeEventWithArgs("ENCOUNTER_END", function(...)
+        EDM:HandleVersionEvent("ENCOUNTER_END", ...)
+    end)
 end
 
 function EDM:HandleVersionEvent(event, ...)

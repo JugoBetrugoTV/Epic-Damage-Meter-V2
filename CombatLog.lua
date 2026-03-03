@@ -6,49 +6,88 @@
 local _, EDM = ...
 
 ------------------------------------------------------------------------
+-- Event registration abstraction
+--
+-- Midnight (12.0+): Frame:RegisterEvent() is a protected function.
+--   Use EventRegistry:RegisterFrameEventAndCallback() instead.
+-- Classic/TBC/MoP: EventRegistry doesn't exist, use legacy frame events.
+------------------------------------------------------------------------
+
+local useEventRegistry = EventRegistry
+    and EventRegistry.RegisterFrameEventAndCallback
+    and true or false
+
+-- Legacy event frame (only created when EventRegistry is unavailable)
+local combatFrame
+local eventHandlers = {}
+
+if not useEventRegistry then
+    combatFrame = CreateFrame("Frame")
+    combatFrame:SetScript("OnEvent", function(_, event, ...)
+        local handler = eventHandlers[event]
+        if handler then handler(...) end
+    end)
+end
+
+--- Register for a Blizzard event with a callback.
+-- Automatically picks the right API for the WoW version.
+local function RegisterSafeEvent(event, handler)
+    if useEventRegistry then
+        EventRegistry:RegisterFrameEventAndCallback(event, function()
+            handler()
+        end, "EDM_" .. event)
+    else
+        eventHandlers[event] = handler
+        combatFrame:RegisterEvent(event)
+    end
+end
+
+--- Register for a Blizzard event that passes arguments to the callback.
+local function RegisterSafeEventWithArgs(event, handler)
+    if useEventRegistry then
+        EventRegistry:RegisterFrameEventAndCallback(event, function(_, ...)
+            handler(...)
+        end, "EDM_" .. event)
+    else
+        eventHandlers[event] = handler
+        combatFrame:RegisterEvent(event)
+    end
+end
+
+-- Expose for version modules (Retail.lua, MoP.lua, etc.)
+EDM.RegisterSafeEvent = RegisterSafeEvent
+EDM.RegisterSafeEventWithArgs = RegisterSafeEventWithArgs
+
+------------------------------------------------------------------------
 -- Combat log event registration
 ------------------------------------------------------------------------
 
-local combatFrame = CreateFrame("Frame")
-
--- Register core events at FILE SCOPE (guaranteed secure execution context).
--- Ace3 libraries (AceGUI, AceConfig) can introduce taint when loaded;
--- registering events later from a function call may fail with
--- ADDON_ACTION_FORBIDDEN if the execution context has become tainted.
-combatFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-combatFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-combatFrame:RegisterEvent("UNIT_PET")
-
 function EDM:RegisterCombatLog()
-    -- Version-specific events (e.g. ENCOUNTER_START/END in Retail & MoP)
-    -- Wrapped in pcall: if taint blocks RegisterEvent, these are non-critical
-    -- (encounter segmentation degrades gracefully to combat-regen detection).
-    local ok, err = pcall(self.RegisterVersionEvents, self, combatFrame)
-    if not ok then
-        self:Print("Warnung: Version-Events konnten nicht registriert werden – kein Encounter-Tracking.")
-    end
-
-    combatFrame:SetScript("OnEvent", function(_, event, ...)
-        if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-            EDM:OnCombatLogEvent()
-        elseif event == "PLAYER_REGEN_DISABLED" then
-            EDM:StartCombat()
-        elseif event == "PLAYER_REGEN_ENABLED" then
-            -- Slight delay to catch final damage events
-            C_Timer.After(0.5, function()
-                EDM:EndCombat()
-            end)
-        elseif event == "GROUP_ROSTER_UPDATE" then
-            EDM:ScanGroupMembers()
-        elseif event == "UNIT_PET" then
-            EDM:ScanPets()
-        else
-            -- Delegate to version module (ENCOUNTER_START, ENCOUNTER_END, etc.)
-            EDM:HandleVersionEvent(event, ...)
-        end
+    -- Core events
+    RegisterSafeEvent("COMBAT_LOG_EVENT_UNFILTERED", function()
+        EDM:OnCombatLogEvent()
     end)
+
+    RegisterSafeEvent("PLAYER_REGEN_DISABLED", function()
+        EDM:StartCombat()
+    end)
+
+    RegisterSafeEvent("PLAYER_REGEN_ENABLED", function()
+        C_Timer.After(0.5, function()
+            EDM:EndCombat()
+        end)
+    end)
+
+    RegisterSafeEvent("GROUP_ROSTER_UPDATE", function()
+        EDM:ScanGroupMembers()
+    end)
+
+    RegisterSafeEvent("UNIT_PET", function()
+        EDM:ScanPets()
+    end)
+
+    -- Version-specific events (ENCOUNTER_START/END in Retail & MoP)
+    self:RegisterVersionEvents()
 
     -- Initial group scan
     self:ScanGroupMembers()

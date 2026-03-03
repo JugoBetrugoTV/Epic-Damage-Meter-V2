@@ -32,7 +32,7 @@ EDM.CLASS_COLORS = {
 -- Version events: No ENCOUNTER events in TBC
 ------------------------------------------------------------------------
 
-function EDM:RegisterVersionEvents(frame)
+function EDM:RegisterVersionEvents()
     -- TBC does not have reliable ENCOUNTER_START / ENCOUNTER_END
 end
 

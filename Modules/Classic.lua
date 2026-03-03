@@ -32,7 +32,7 @@ EDM.CLASS_COLORS = {
 -- Version events: No ENCOUNTER events in Classic
 ------------------------------------------------------------------------
 
-function EDM:RegisterVersionEvents(frame)
+function EDM:RegisterVersionEvents()
     -- Classic does not have ENCOUNTER_START / ENCOUNTER_END
 end
 
