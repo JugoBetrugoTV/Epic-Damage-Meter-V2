@@ -3,11 +3,11 @@
 -- CombatLog.lua – Event registration + combat data collection
 --
 -- Midnight (12.0+):
---   Frame:RegisterEvent() is a protected function – addons can't use it.
+--   Traditional events (PLAYER_REGEN_DISABLED etc.) are gone.
 --   COMBAT_LOG_EVENT_UNFILTERED has been removed.
---   → Frame:RegisterEventCallback(event, cb)  for traditional events
---   → RegisterEventCallback(event, cb)         for new Midnight events
---   → C_DamageMeter API for damage/healing data
+--   → C_DamageMeter API handles everything: combat sessions, damage,
+--     healing, class info, pet merging – all server-side.
+--   → Only DAMAGE_METER_* events needed (via RegisterEventCallback)
 --
 -- Classic / TBC / MoP:
 --   → Use Frame:RegisterEvent() + CLEU parsing (still works)
@@ -16,33 +16,26 @@
 local _, EDM = ...
 
 ------------------------------------------------------------------------
--- Event registration abstraction
+-- Event registration
 ------------------------------------------------------------------------
 
 -- C_DamageMeter only exists in Midnight 12.0+
 local isMidnight = (C_DamageMeter ~= nil)
 
--- Event frame (used on all versions; Midnight uses RegisterEventCallback method)
-local eventFrame = CreateFrame("Frame")
-
--- Forward-declare at file scope so RegisterCombatLog() can see it
+-- Forward-declare at file scope
 local RegisterSafeEvent
 
 if isMidnight then
-    -- Midnight 12.0+: Frame:RegisterEventCallback(event, cb)
-    -- New frame method that replaces Frame:RegisterEvent() for addon code.
-    -- Global RegisterEventCallback() is only for NEW Midnight events.
+    -- Midnight 12.0+: Only new DAMAGE_METER_* events exist.
+    -- Traditional events (PLAYER_REGEN_DISABLED, GROUP_ROSTER_UPDATE,
+    -- COMBAT_LOG_EVENT_UNFILTERED, etc.) have been removed.
+    -- Use the global RegisterEventCallback() for new events.
     RegisterSafeEvent = function(event, handler)
-        -- Try frame method first (works for traditional events)
-        if eventFrame.RegisterEventCallback then
-            eventFrame:RegisterEventCallback(event, handler)
-        else
-            -- Fallback: global function (only works for new events)
-            RegisterEventCallback(event, handler)
-        end
+        RegisterEventCallback(event, handler)
     end
 else
     -- Classic/TBC/MoP: Frame:RegisterEvent + OnEvent dispatch
+    local eventFrame = CreateFrame("Frame")
     local eventHandlers = {}
     eventFrame:SetScript("OnEvent", function(_, event, ...)
         local handler = eventHandlers[event]
@@ -62,47 +55,61 @@ EDM.RegisterSafeEvent = RegisterSafeEvent
 ------------------------------------------------------------------------
 
 function EDM:RegisterCombatLog()
-    -- Combat state events (all versions)
-    RegisterSafeEvent("PLAYER_REGEN_DISABLED", function()
-        EDM:StartCombat()
-    end)
-
-    RegisterSafeEvent("PLAYER_REGEN_ENABLED", function()
-        C_Timer.After(0.5, function()
-            EDM:EndCombat()
-        end)
-    end)
-
-    RegisterSafeEvent("GROUP_ROSTER_UPDATE", function()
-        EDM:ScanGroupMembers()
-    end)
-
-    RegisterSafeEvent("UNIT_PET", function()
-        EDM:ScanPets()
-    end)
-
-    -- Version-specific events (encounter tracking)
-    self:RegisterVersionEvents()
-
     if isMidnight then
         -- ============================================================
-        -- Midnight 12.0+: C_DamageMeter replaces CLEU
+        -- Midnight 12.0+: C_DamageMeter handles everything
+        --
+        -- No traditional events needed:
+        --   Combat start/end  → session lifecycle
+        --   Encounter names   → session.name
+        --   Class info        → source.classFilename
+        --   Pet merging       → server-side (RedirectSourceToOwner)
+        --   Damage/Healing    → source.totalAmount
         -- ============================================================
         RegisterSafeEvent("DAMAGE_METER_COMBAT_SESSION_UPDATED", function(meterType, sessionID)
             EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
         end)
+
+        RegisterSafeEvent("DAMAGE_METER_CURRENT_SESSION_UPDATED", function()
+            EDM:OnDamageMeterCurrentSessionChanged()
+        end)
+
+        RegisterSafeEvent("DAMAGE_METER_RESET", function()
+            EDM:ResetData()
+        end)
     else
         -- ============================================================
-        -- Classic / TBC / MoP: traditional CLEU parsing
+        -- Classic / TBC / MoP: traditional event-driven approach
         -- ============================================================
         RegisterSafeEvent("COMBAT_LOG_EVENT_UNFILTERED", function()
             EDM:OnCombatLogEvent()
         end)
-    end
 
-    -- Initial group scan
-    self:ScanGroupMembers()
-    self:ScanPets()
+        RegisterSafeEvent("PLAYER_REGEN_DISABLED", function()
+            EDM:StartCombat()
+        end)
+
+        RegisterSafeEvent("PLAYER_REGEN_ENABLED", function()
+            C_Timer.After(0.5, function()
+                EDM:EndCombat()
+            end)
+        end)
+
+        RegisterSafeEvent("GROUP_ROSTER_UPDATE", function()
+            EDM:ScanGroupMembers()
+        end)
+
+        RegisterSafeEvent("UNIT_PET", function()
+            EDM:ScanPets()
+        end)
+
+        -- Version-specific events (encounter tracking)
+        self:RegisterVersionEvents()
+
+        -- Initial group scan
+        self:ScanGroupMembers()
+        self:ScanPets()
+    end
 end
 
 ------------------------------------------------------------------------
@@ -114,6 +121,9 @@ end
 -- secret (can't do math). We use pcall to handle this gracefully.
 ------------------------------------------------------------------------
 
+-- Track the last known sessionID to detect new combat sessions
+local lastSessionID = nil
+
 function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
     if not C_DamageMeter then return end
 
@@ -122,14 +132,34 @@ function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
     local isHealing = (meterType == Enum.DamageMeterType.HealingDone)
     if not isDamage and not isHealing then return end
 
-    -- Query the session
+    -- New session → new combat segment
+    if sessionID ~= lastSessionID then
+        -- End previous combat if active
+        if self.inCombat then
+            self:EndCombat()
+        end
+
+        lastSessionID = sessionID
+        self:StartCombat()
+
+        -- Try to get the session name (encounter name)
+        local sessions = C_DamageMeter.GetAvailableCombatSessions()
+        if sessions then
+            for _, s in ipairs(sessions) do
+                if s.sessionID == sessionID and s.name and s.name ~= "" then
+                    if self.currentSegment then
+                        self.currentSegment.name = s.name
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    -- Query the session data
     local ok, session = pcall(C_DamageMeter.GetCombatSessionFromID, sessionID, meterType)
     if not ok or not session then return end
 
-    -- Ensure we have a segment
-    if not self.currentSegment then
-        self:StartCombat()
-    end
     local segment = self.currentSegment
     if not segment then return end
 
@@ -141,12 +171,10 @@ function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
             local class = source.classFilename or "UNKNOWN"
 
             -- pcall: totalAmount may be a secret value during restricted combat
-            local amount
+            local amount = 0
             local amtOk, amtVal = pcall(function() return source.totalAmount + 0 end)
             if amtOk then
                 amount = amtVal
-            else
-                amount = 0
             end
 
             local player = self:GetOrCreatePlayer(segment, guid, name, class)
@@ -169,11 +197,21 @@ function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
     self.displayDirty = true
 end
 
+function EDM:OnDamageMeterCurrentSessionChanged()
+    -- Current session changed → combat likely ended
+    if self.inCombat then
+        self:EndCombat()
+        lastSessionID = nil
+    end
+end
+
 ------------------------------------------------------------------------
--- Group scanning for class information
+-- Group scanning for class information (Classic/TBC/MoP only)
+-- On Midnight, C_DamageMeter provides classFilename directly.
 ------------------------------------------------------------------------
 
 function EDM:ScanGroupMembers()
+    if isMidnight then return end
     if not self.classCache then self.classCache = {} end
 
     local prefix, count
@@ -209,6 +247,7 @@ function EDM:ScanGroupMembers()
 end
 
 function EDM:ScanPets()
+    if isMidnight then return end
     if not self.petOwners then self.petOwners = {} end
 
     local prefix, count

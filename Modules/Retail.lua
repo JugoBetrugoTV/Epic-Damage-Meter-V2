@@ -93,22 +93,12 @@ end
 ------------------------------------------------------------------------
 
 function EDM:RegisterVersionEvents()
-    EDM.RegisterSafeEvent("ENCOUNTER_START", function(encounterID, encounterName, difficultyID, groupSize)
-        EDM:StartCombat()
-        if EDM.currentSegment and encounterName then
-            EDM.currentSegment.name = encounterName
-        end
-    end)
-
-    EDM.RegisterSafeEvent("ENCOUNTER_END", function()
-        EDM:EndCombat()
-    end)
+    -- On Midnight 12.0+, traditional events (ENCOUNTER_START/END) are gone.
+    -- C_DamageMeter handles combat sessions and encounter names server-side.
 end
 
--- HandleVersionEvent is only used by the Classic CLEU OnEvent dispatcher.
--- On Midnight, encounter events go directly to their RegisterSafeEvent callbacks.
 function EDM:HandleVersionEvent(event, ...)
-    -- no-op on Retail (events handled via callbacks above)
+    -- no-op on Retail
 end
 
 ------------------------------------------------------------------------
