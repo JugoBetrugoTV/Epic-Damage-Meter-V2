@@ -5,8 +5,9 @@
 -- Midnight (12.0+):
 --   Frame:RegisterEvent() is a protected function – addons can't use it.
 --   COMBAT_LOG_EVENT_UNFILTERED has been removed.
---   → Use RegisterEventCallback() for event registration
---   → Use C_DamageMeter API for damage/healing data
+--   → Frame:RegisterEventCallback(event, cb)  for traditional events
+--   → RegisterEventCallback(event, cb)         for new Midnight events
+--   → C_DamageMeter API for damage/healing data
 --
 -- Classic / TBC / MoP:
 --   → Use Frame:RegisterEvent() + CLEU parsing (still works)
@@ -18,35 +19,39 @@ local _, EDM = ...
 -- Event registration abstraction
 ------------------------------------------------------------------------
 
--- C_DamageMeter + RegisterEventCallback only exist in Midnight 12.0+
-local isMidnight = (C_DamageMeter ~= nil and RegisterEventCallback ~= nil)
+-- C_DamageMeter only exists in Midnight 12.0+
+local isMidnight = (C_DamageMeter ~= nil)
 
--- Legacy event frame (Classic/TBC/MoP only)
-local combatFrame
-local eventHandlers = {}
+-- Event frame (used on all versions; Midnight uses RegisterEventCallback method)
+local eventFrame = CreateFrame("Frame")
 
-if not isMidnight then
-    combatFrame = CreateFrame("Frame")
-    combatFrame:SetScript("OnEvent", function(_, event, ...)
+if isMidnight then
+    -- Midnight 12.0+: Frame:RegisterEventCallback(event, cb)
+    -- New frame method that replaces Frame:RegisterEvent() for addon code.
+    -- Global RegisterEventCallback() is only for NEW Midnight events.
+    local function RegisterSafeEvent(event, handler)
+        -- Try frame method first (works for traditional events)
+        if eventFrame.RegisterEventCallback then
+            eventFrame:RegisterEventCallback(event, handler)
+        else
+            -- Fallback: global function (only works for new events)
+            RegisterEventCallback(event, handler)
+        end
+    end
+    EDM.RegisterSafeEvent = RegisterSafeEvent
+else
+    -- Classic/TBC/MoP: Frame:RegisterEvent + OnEvent dispatch
+    local eventHandlers = {}
+    eventFrame:SetScript("OnEvent", function(_, event, ...)
         local handler = eventHandlers[event]
         if handler then handler(...) end
     end)
-end
-
---- Register for a Blizzard event with a callback.
--- Midnight 12.0+: RegisterEventCallback (frameless, not protected)
--- Classic/TBC/MoP: Frame:RegisterEvent + OnEvent dispatch
-local function RegisterSafeEvent(event, handler)
-    if isMidnight then
-        RegisterEventCallback(event, handler)
-    else
+    local function RegisterSafeEvent(event, handler)
         eventHandlers[event] = handler
-        combatFrame:RegisterEvent(event)
+        eventFrame:RegisterEvent(event)
     end
+    EDM.RegisterSafeEvent = RegisterSafeEvent
 end
-
--- Expose for version modules
-EDM.RegisterSafeEvent = RegisterSafeEvent
 
 ------------------------------------------------------------------------
 -- Combat log event registration
