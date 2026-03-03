@@ -20,7 +20,10 @@ Core.lua
 DataStore.lua
 CombatLog.lua
 Display.lua
-Config.lua
 
 # Version module: Retail (Midnight 12.0.1)
 Modules\Retail.lua
+
+# Config libraries (loaded after core to avoid taint on RegisterEvent)
+Libs\embeds-config.xml
+Config.lua

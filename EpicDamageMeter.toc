@@ -20,7 +20,10 @@ Core.lua
 DataStore.lua
 CombatLog.lua
 Display.lua
-Config.lua
 
 # Version module: Retail (fallback TOC = Retail)
 Modules\Retail.lua
+
+# Config libraries (loaded after core to avoid taint on RegisterEvent)
+Libs\embeds-config.xml
+Config.lua

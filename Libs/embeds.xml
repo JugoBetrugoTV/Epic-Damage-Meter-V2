@@ -8,16 +8,11 @@
     <!-- CallbackHandler is required by most Ace3 libraries -->
     <Include file="CallbackHandler-1.0\CallbackHandler-1.0.xml"/>
 
-    <!-- Ace3 core libraries -->
+    <!-- Ace3 core libraries (safe – no taint) -->
     <Include file="AceAddon-3.0\AceAddon-3.0.xml"/>
     <Include file="AceDB-3.0\AceDB-3.0.xml"/>
-    <Include file="AceDBOptions-3.0\AceDBOptions-3.0.xml"/>
     <Include file="AceEvent-3.0\AceEvent-3.0.xml"/>
     <Include file="AceConsole-3.0\AceConsole-3.0.xml"/>
-
-    <!-- Ace3 GUI + Config framework -->
-    <Include file="AceGUI-3.0\AceGUI-3.0.xml"/>
-    <Include file="AceConfig-3.0\AceConfig-3.0.xml"/>
 
     <!-- Shared Media for bar textures and fonts -->
     <Include file="LibSharedMedia-3.0\lib.xml"/>

@@ -18,8 +18,11 @@ Core.lua
 DataStore.lua
 CombatLog.lua
 Display.lua
-Config.lua
 
 # Version module: MoP Classic
 Modules\DropdownMenu.lua
 Modules\MoP.lua
+
+# Config libraries (loaded after core to avoid taint on RegisterEvent)
+Libs\embeds-config.xml
+Config.lua
