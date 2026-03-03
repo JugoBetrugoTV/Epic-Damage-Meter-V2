@@ -240,7 +240,6 @@ function EDM:OnPlayerLogin()
     self:RegisterCombatLog()      -- Before CreateDisplay: avoid taint from UI code
     self:CreateDisplay()
     self:RegisterSlashCommands()
-    self:InitConfig()
     InitMinimapButton()
     self:InitConfig()             -- Last: AceConfig may taint the execution context
 
