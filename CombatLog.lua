@@ -11,16 +11,24 @@ local _, EDM = ...
 
 local combatFrame = CreateFrame("Frame")
 
-function EDM:RegisterCombatLog()
-    -- Core events (all versions)
-    combatFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-    combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    combatFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-    combatFrame:RegisterEvent("UNIT_PET")
+-- Register core events at FILE SCOPE (guaranteed secure execution context).
+-- Ace3 libraries (AceGUI, AceConfig) can introduce taint when loaded;
+-- registering events later from a function call may fail with
+-- ADDON_ACTION_FORBIDDEN if the execution context has become tainted.
+combatFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+combatFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+combatFrame:RegisterEvent("UNIT_PET")
 
+function EDM:RegisterCombatLog()
     -- Version-specific events (e.g. ENCOUNTER_START/END in Retail & MoP)
-    self:RegisterVersionEvents(combatFrame)
+    -- Wrapped in pcall: if taint blocks RegisterEvent, these are non-critical
+    -- (encounter segmentation degrades gracefully to combat-regen detection).
+    local ok, err = pcall(self.RegisterVersionEvents, self, combatFrame)
+    if not ok then
+        self:Print("Warnung: Version-Events konnten nicht registriert werden – kein Encounter-Tracking.")
+    end
 
     combatFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "COMBAT_LOG_EVENT_UNFILTERED" then

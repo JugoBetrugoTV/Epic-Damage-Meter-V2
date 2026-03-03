@@ -237,11 +237,12 @@ end)
 
 function EDM:OnPlayerLogin()
     self:InitDataStore()
+    self:RegisterCombatLog()      -- Before CreateDisplay: avoid taint from UI code
     self:CreateDisplay()
-    self:RegisterCombatLog()
     self:RegisterSlashCommands()
     self:InitConfig()
     InitMinimapButton()
+    self:InitConfig()             -- Last: AceConfig may taint the execution context
 
     local versionInfo
     if self.isRetail then
