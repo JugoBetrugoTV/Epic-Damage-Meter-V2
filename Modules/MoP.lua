@@ -35,10 +35,10 @@ EDM.CLASS_COLORS = {
 ------------------------------------------------------------------------
 
 function EDM:RegisterVersionEvents()
-    EDM.RegisterSafeEventWithArgs("ENCOUNTER_START", function(...)
-        EDM:HandleVersionEvent("ENCOUNTER_START", ...)
+    EDM.RegisterSafeEvent("ENCOUNTER_START", function(encounterID, encounterName)
+        EDM:HandleVersionEvent("ENCOUNTER_START", encounterID, encounterName)
     end)
-    EDM.RegisterSafeEventWithArgs("ENCOUNTER_END", function(...)
+    EDM.RegisterSafeEvent("ENCOUNTER_END", function(...)
         EDM:HandleVersionEvent("ENCOUNTER_END", ...)
     end)
 end

@@ -83,36 +83,32 @@ function EDM:ShowContextMenu()
         rootDescription:CreateButton("Chat-Report", function()
             EDM:ReportToChat("say")
         end)
-
-        rootDescription:CreateButton("Optionen", function()
-            EDM:OpenConfig()
-        end)
     end)
 end
 
 ------------------------------------------------------------------------
 -- Version events: ENCOUNTER_START / ENCOUNTER_END
+-- Uses RegisterSafeEvent (RegisterEventCallback on Midnight,
+-- Frame:RegisterEvent on older clients)
 ------------------------------------------------------------------------
 
 function EDM:RegisterVersionEvents()
-    EDM.RegisterSafeEventWithArgs("ENCOUNTER_START", function(...)
-        EDM:HandleVersionEvent("ENCOUNTER_START", ...)
+    EDM.RegisterSafeEvent("ENCOUNTER_START", function(encounterID, encounterName, difficultyID, groupSize)
+        EDM:StartCombat()
+        if EDM.currentSegment and encounterName then
+            EDM.currentSegment.name = encounterName
+        end
     end)
-    EDM.RegisterSafeEventWithArgs("ENCOUNTER_END", function(...)
-        EDM:HandleVersionEvent("ENCOUNTER_END", ...)
+
+    EDM.RegisterSafeEvent("ENCOUNTER_END", function()
+        EDM:EndCombat()
     end)
 end
 
+-- HandleVersionEvent is only used by the Classic CLEU OnEvent dispatcher.
+-- On Midnight, encounter events go directly to their RegisterSafeEvent callbacks.
 function EDM:HandleVersionEvent(event, ...)
-    if event == "ENCOUNTER_START" then
-        local encounterID, encounterName = ...
-        self:StartCombat()
-        if self.currentSegment and encounterName then
-            self.currentSegment.name = encounterName
-        end
-    elseif event == "ENCOUNTER_END" then
-        self:EndCombat()
-    end
+    -- no-op on Retail (events handled via callbacks above)
 end
 
 ------------------------------------------------------------------------

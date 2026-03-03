@@ -1,27 +1,31 @@
 ------------------------------------------------------------------------
 -- Epic Damage Meter V2
--- CombatLog.lua – COMBAT_LOG_EVENT_UNFILTERED parsing
+-- CombatLog.lua – Event registration + combat data collection
+--
+-- Midnight (12.0+):
+--   Frame:RegisterEvent() is a protected function – addons can't use it.
+--   COMBAT_LOG_EVENT_UNFILTERED has been removed.
+--   → Use RegisterEventCallback() for event registration
+--   → Use C_DamageMeter API for damage/healing data
+--
+-- Classic / TBC / MoP:
+--   → Use Frame:RegisterEvent() + CLEU parsing (still works)
 ------------------------------------------------------------------------
 
 local _, EDM = ...
 
 ------------------------------------------------------------------------
 -- Event registration abstraction
---
--- Midnight (12.0+): Frame:RegisterEvent() is a protected function.
---   Use EventRegistry:RegisterFrameEventAndCallback() instead.
--- Classic/TBC/MoP: EventRegistry doesn't exist, use legacy frame events.
 ------------------------------------------------------------------------
 
-local useEventRegistry = EventRegistry
-    and EventRegistry.RegisterFrameEventAndCallback
-    and true or false
+-- C_DamageMeter + RegisterEventCallback only exist in Midnight 12.0+
+local isMidnight = (C_DamageMeter ~= nil and RegisterEventCallback ~= nil)
 
--- Legacy event frame (only created when EventRegistry is unavailable)
+-- Legacy event frame (Classic/TBC/MoP only)
 local combatFrame
 local eventHandlers = {}
 
-if not useEventRegistry then
+if not isMidnight then
     combatFrame = CreateFrame("Frame")
     combatFrame:SetScript("OnEvent", function(_, event, ...)
         local handler = eventHandlers[event]
@@ -30,44 +34,26 @@ if not useEventRegistry then
 end
 
 --- Register for a Blizzard event with a callback.
--- Automatically picks the right API for the WoW version.
+-- Midnight 12.0+: RegisterEventCallback (frameless, not protected)
+-- Classic/TBC/MoP: Frame:RegisterEvent + OnEvent dispatch
 local function RegisterSafeEvent(event, handler)
-    if useEventRegistry then
-        EventRegistry:RegisterFrameEventAndCallback(event, function()
-            handler()
-        end, "EDM_" .. event)
+    if isMidnight then
+        RegisterEventCallback(event, handler)
     else
         eventHandlers[event] = handler
         combatFrame:RegisterEvent(event)
     end
 end
 
---- Register for a Blizzard event that passes arguments to the callback.
-local function RegisterSafeEventWithArgs(event, handler)
-    if useEventRegistry then
-        EventRegistry:RegisterFrameEventAndCallback(event, function(_, ...)
-            handler(...)
-        end, "EDM_" .. event)
-    else
-        eventHandlers[event] = handler
-        combatFrame:RegisterEvent(event)
-    end
-end
-
--- Expose for version modules (Retail.lua, MoP.lua, etc.)
+-- Expose for version modules
 EDM.RegisterSafeEvent = RegisterSafeEvent
-EDM.RegisterSafeEventWithArgs = RegisterSafeEventWithArgs
 
 ------------------------------------------------------------------------
 -- Combat log event registration
 ------------------------------------------------------------------------
 
 function EDM:RegisterCombatLog()
-    -- Core events
-    RegisterSafeEvent("COMBAT_LOG_EVENT_UNFILTERED", function()
-        EDM:OnCombatLogEvent()
-    end)
-
+    -- Combat state events (all versions)
     RegisterSafeEvent("PLAYER_REGEN_DISABLED", function()
         EDM:StartCombat()
     end)
@@ -86,12 +72,92 @@ function EDM:RegisterCombatLog()
         EDM:ScanPets()
     end)
 
-    -- Version-specific events (ENCOUNTER_START/END in Retail & MoP)
+    -- Version-specific events (encounter tracking)
     self:RegisterVersionEvents()
+
+    if isMidnight then
+        -- ============================================================
+        -- Midnight 12.0+: C_DamageMeter replaces CLEU
+        -- ============================================================
+        RegisterSafeEvent("DAMAGE_METER_COMBAT_SESSION_UPDATED", function(meterType, sessionID)
+            EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
+        end)
+    else
+        -- ============================================================
+        -- Classic / TBC / MoP: traditional CLEU parsing
+        -- ============================================================
+        RegisterSafeEvent("COMBAT_LOG_EVENT_UNFILTERED", function()
+            EDM:OnCombatLogEvent()
+        end)
+    end
 
     -- Initial group scan
     self:ScanGroupMembers()
     self:ScanPets()
+end
+
+------------------------------------------------------------------------
+-- C_DamageMeter integration (Midnight 12.0+ only)
+--
+-- Blizzard's server-side damage meter provides aggregated session data.
+-- We query it on each update event and import into our segment format.
+-- Secret Values: During boss encounters / M+, numeric values may be
+-- secret (can't do math). We use pcall to handle this gracefully.
+------------------------------------------------------------------------
+
+function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
+    if not C_DamageMeter then return end
+
+    -- Only process damage and healing types
+    local isDamage  = (meterType == Enum.DamageMeterType.DamageDone)
+    local isHealing = (meterType == Enum.DamageMeterType.HealingDone)
+    if not isDamage and not isHealing then return end
+
+    -- Query the session
+    local ok, session = pcall(C_DamageMeter.GetCombatSessionFromID, sessionID, meterType)
+    if not ok or not session then return end
+
+    -- Ensure we have a segment
+    if not self.currentSegment then
+        self:StartCombat()
+    end
+    local segment = self.currentSegment
+    if not segment then return end
+
+    -- Import source data into our segment
+    if session.combatSources then
+        for _, source in ipairs(session.combatSources) do
+            local guid = source.sourceGUID or ("creature:" .. tostring(source.sourceCreatureID or 0))
+            local name = source.name or "Unbekannt"
+            local class = source.classFilename or "UNKNOWN"
+
+            -- pcall: totalAmount may be a secret value during restricted combat
+            local amount
+            local amtOk, amtVal = pcall(function() return source.totalAmount + 0 end)
+            if amtOk then
+                amount = amtVal
+            else
+                amount = 0
+            end
+
+            local player = self:GetOrCreatePlayer(segment, guid, name, class)
+            if player then
+                if isDamage then
+                    player.damage = amount
+                elseif isHealing then
+                    player.healing = amount
+                end
+            end
+        end
+    end
+
+    -- Update segment duration from server data
+    local durOk, dur = pcall(function() return session.durationSeconds + 0 end)
+    if durOk and dur and dur > 0 then
+        segment.startTime = GetTime() - dur
+    end
+
+    self.displayDirty = true
 end
 
 ------------------------------------------------------------------------
@@ -166,7 +232,7 @@ function EDM:ScanPets()
 end
 
 ------------------------------------------------------------------------
--- Class lookup
+-- Class lookup (used by CLEU path on Classic/TBC/MoP)
 ------------------------------------------------------------------------
 
 function EDM:LookupClass(guid)
@@ -187,7 +253,9 @@ function EDM:LookupClass(guid)
 end
 
 ------------------------------------------------------------------------
--- CLEU parsing
+-- CLEU parsing (Classic / TBC / MoP only)
+--
+-- Not used on Midnight 12.0+ where CLEU has been removed.
 ------------------------------------------------------------------------
 
 -- Sub-events that represent damage
@@ -204,15 +272,6 @@ local DAMAGE_EVENTS = {
 local HEALING_EVENTS = {
     SPELL_HEAL             = true,
     SPELL_PERIODIC_HEAL    = true,
-}
-
--- Sub-events that indicate combat start (for auto-detection)
-local COMBAT_START_EVENTS = {
-    SWING_DAMAGE          = true,
-    RANGE_DAMAGE          = true,
-    SPELL_DAMAGE          = true,
-    SPELL_PERIODIC_DAMAGE = true,
-    SPELL_CAST_SUCCESS    = true,
 }
 
 function EDM:OnCombatLogEvent()
