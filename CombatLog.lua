@@ -30,10 +30,14 @@ local isMidnight = (C_DamageMeter ~= nil)
 local eventFrame = CreateFrame("Frame")
 
 if isMidnight then
-    -- Midnight 12.0+: Only DAMAGE_METER_* events
+    -- Midnight 12.0+: DAMAGE_METER_* events + PLAYER_REGEN for combat end
     eventFrame:RegisterEvent("DAMAGE_METER_COMBAT_SESSION_UPDATED")
     eventFrame:RegisterEvent("DAMAGE_METER_CURRENT_SESSION_UPDATED")
     eventFrame:RegisterEvent("DAMAGE_METER_RESET")
+
+    -- PLAYER_REGEN_ENABLED may or may not be registerable in Midnight.
+    -- pcall so it doesn't break the addon if it's protected.
+    pcall(function() eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED") end)
 
     eventFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "DAMAGE_METER_COMBAT_SESSION_UPDATED" then
@@ -41,6 +45,8 @@ if isMidnight then
             EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
         elseif event == "DAMAGE_METER_CURRENT_SESSION_UPDATED" then
             EDM:OnDamageMeterCurrentSessionChanged()
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            EDM:OnMidnightCombatEnd()
         elseif event == "DAMAGE_METER_RESET" then
             EDM:ResetData()
         end
@@ -106,56 +112,53 @@ end
 --
 -- Secret Values: During combat, sourceGUID / name / totalAmount are
 -- secret for addon (tainted) code. classFilename and isLocalPlayer
--- are NeverSecret.  We attempt import on every update event, but the
--- real data only comes through when combat ends and secrets are lifted.
+-- are NeverSecret.
+--
+-- Strategy:
+--   1. During combat: try import on each update (silently skip secrets)
+--   2. On combat end (PLAYER_REGEN_ENABLED / CURRENT_SESSION_UPDATED):
+--      wait 0.5s for secrets to lift, then reimport via Expired session
+--   3. Fallback: re-read by sessionID
 ------------------------------------------------------------------------
 
 local lastSessionID = nil
 local activeSessionID = nil
+local pendingReimport = false
 
-function EDM:ImportDamageMeterSession(sessionID, meterType)
+function EDM:ImportSessionSources(session, meterType, segment)
     local isDamage  = (meterType == Enum.DamageMeterType.DamageDone)
     local isHealing = (meterType == Enum.DamageMeterType.HealingDone)
-    if not isDamage and not isHealing then return end
-
-    local ok, session = pcall(C_DamageMeter.GetCombatSessionFromID, sessionID, meterType)
-    if not ok or not session then return end
-
-    local segment = self.currentSegment
-    if not segment then return end
+    if not isDamage and not isHealing then return 0 end
+    if not session or not session.combatSources then return 0 end
+    if not segment then return 0 end
 
     local imported = 0
 
-    if session.combatSources then
-        for _, source in ipairs(session.combatSources) do
-            local srcOk = pcall(function()
-                local guid = source.sourceGUID
-                local name = source.name or "Unbekannt"
-                local class = source.classFilename or "UNKNOWN"
+    for _, source in ipairs(session.combatSources) do
+        pcall(function()
+            local guid = source.sourceGUID
+            local name = source.name or "Unbekannt"
+            local class = source.classFilename or "UNKNOWN"
 
-                -- Throws if guid is a secret value (can't be used as table key)
-                local _ = ({[guid] = true})[guid]
+            -- Throws if guid is a secret value
+            local _ = ({[guid] = true})[guid]
 
-                local amount = 0
-                local amtOk, amtVal = pcall(function() return source.totalAmount + 0 end)
-                if amtOk then
-                    amount = amtVal
+            local amount = 0
+            pcall(function() amount = source.totalAmount + 0 end)
+
+            local player = self:GetOrCreatePlayer(segment, guid, name, class)
+            if player then
+                if isDamage then
+                    player.damage = amount
+                elseif isHealing then
+                    player.healing = amount
                 end
-
-                local player = self:GetOrCreatePlayer(segment, guid, name, class)
-                if player then
-                    if isDamage then
-                        player.damage = amount
-                    elseif isHealing then
-                        player.healing = amount
-                    end
-                end
-                imported = imported + 1
-            end)
-        end
+            end
+            imported = imported + 1
+        end)
     end
 
-    -- Update segment duration from server data (may be secret)
+    -- Duration
     pcall(function()
         local dur = session.durationSeconds + 0
         if dur > 0 then
@@ -164,6 +167,54 @@ function EDM:ImportDamageMeterSession(sessionID, meterType)
     end)
 
     return imported
+end
+
+function EDM:TryImportByID(sessionID, meterType, segment)
+    local ok, session = pcall(C_DamageMeter.GetCombatSessionFromID, sessionID, meterType)
+    if ok and session then
+        return self:ImportSessionSources(session, meterType, segment)
+    end
+    return 0
+end
+
+function EDM:TryImportByType(sessionType, meterType, segment)
+    local ok, session = pcall(C_DamageMeter.GetCombatSessionFromType, sessionType, meterType)
+    if ok and session then
+        return self:ImportSessionSources(session, meterType, segment)
+    end
+    return 0
+end
+
+function EDM:DoPostCombatImport()
+    local segment = self.currentSegment
+    if not segment then return end
+
+    local totalImported = 0
+
+    for _, meterType in ipairs({Enum.DamageMeterType.DamageDone, Enum.DamageMeterType.HealingDone}) do
+        local n = 0
+
+        -- Try 1: by stored sessionID
+        if activeSessionID then
+            n = self:TryImportByID(activeSessionID, meterType, segment)
+        end
+
+        -- Try 2: expired session (recently completed combat)
+        if n == 0 then
+            n = self:TryImportByType(Enum.DamageMeterSessionType.Expired, meterType, segment)
+        end
+
+        -- Try 3: current session (might still be accessible)
+        if n == 0 then
+            n = self:TryImportByType(Enum.DamageMeterSessionType.Current, meterType, segment)
+        end
+
+        totalImported = totalImported + n
+    end
+
+    if totalImported > 0 then
+        self.displayDirty = true
+    end
 end
 
 function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
@@ -183,7 +234,7 @@ function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
         activeSessionID = sessionID
         self:StartCombat()
 
-        -- Try to get the session name (encounter name)
+        -- Try to get the session name
         pcall(function()
             local sessions = C_DamageMeter.GetAvailableCombatSessions()
             if sessions then
@@ -199,24 +250,49 @@ function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
         end)
     end
 
-    -- Try to import (may silently skip sources due to secrets during combat)
-    self:ImportDamageMeterSession(sessionID, meterType)
+    -- Try to import (silently skips sources with secret fields)
+    local segment = self.currentSegment
+    if segment then
+        local ok, session = pcall(C_DamageMeter.GetCombatSessionFromID, sessionID, meterType)
+        if ok and session then
+            self:ImportSessionSources(session, meterType, segment)
+        end
+    end
     self.displayDirty = true
 end
 
 function EDM:OnDamageMeterCurrentSessionChanged()
-    -- Combat ended → secrets are lifted → re-import the completed session
-    if activeSessionID and self.currentSegment then
-        self:ImportDamageMeterSession(activeSessionID, Enum.DamageMeterType.DamageDone)
-        self:ImportDamageMeterSession(activeSessionID, Enum.DamageMeterType.HealingDone)
-        self.displayDirty = true
-    end
+    if not self.inCombat then return end
+    if pendingReimport then return end
 
-    if self.inCombat then
-        self:EndCombat()
-    end
-    lastSessionID = nil
-    activeSessionID = nil
+    -- Delay reimport slightly to let secrets lift
+    pendingReimport = true
+    C_Timer.After(0.5, function()
+        pendingReimport = false
+        EDM:DoPostCombatImport()
+        if EDM.inCombat then
+            EDM:EndCombat()
+        end
+        lastSessionID = nil
+        activeSessionID = nil
+    end)
+end
+
+function EDM:OnMidnightCombatEnd()
+    -- PLAYER_REGEN_ENABLED fired – combat definitely ended
+    if not self.inCombat then return end
+    if pendingReimport then return end
+
+    pendingReimport = true
+    C_Timer.After(0.5, function()
+        pendingReimport = false
+        EDM:DoPostCombatImport()
+        if EDM.inCombat then
+            EDM:EndCombat()
+        end
+        lastSessionID = nil
+        activeSessionID = nil
+    end)
 end
 
 ------------------------------------------------------------------------
