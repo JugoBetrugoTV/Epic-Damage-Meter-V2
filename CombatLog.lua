@@ -103,66 +103,37 @@ end
 
 ------------------------------------------------------------------------
 -- C_DamageMeter integration (Midnight 12.0+ only)
+--
+-- Secret Values: During combat, sourceGUID / name / totalAmount are
+-- secret for addon (tainted) code. classFilename and isLocalPlayer
+-- are NeverSecret.  We attempt import on every update event, but the
+-- real data only comes through when combat ends and secrets are lifted.
 ------------------------------------------------------------------------
 
 local lastSessionID = nil
+local activeSessionID = nil
 
-function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
-    if not C_DamageMeter then return end
-
-    -- Only process damage and healing types
+function EDM:ImportDamageMeterSession(sessionID, meterType)
     local isDamage  = (meterType == Enum.DamageMeterType.DamageDone)
     local isHealing = (meterType == Enum.DamageMeterType.HealingDone)
     if not isDamage and not isHealing then return end
 
-    -- New session → new combat segment
-    if sessionID ~= lastSessionID then
-        if self.inCombat then
-            self:EndCombat()
-        end
-
-        lastSessionID = sessionID
-        self:StartCombat()
-
-        -- Try to get the session name (encounter name)
-        -- Session fields may also be secret during restricted combat
-        pcall(function()
-            local sessions = C_DamageMeter.GetAvailableCombatSessions()
-            if sessions then
-                for _, s in ipairs(sessions) do
-                    if s.sessionID == sessionID and s.name and s.name ~= "" then
-                        if self.currentSegment then
-                            self.currentSegment.name = s.name
-                        end
-                        break
-                    end
-                end
-            end
-        end)
-    end
-
-    -- Query the session data
     local ok, session = pcall(C_DamageMeter.GetCombatSessionFromID, sessionID, meterType)
     if not ok or not session then return end
 
     local segment = self.currentSegment
     if not segment then return end
 
-    -- Import source data into our segment
-    -- During restricted combat (boss encounters, M+), sourceGUID and name
-    -- are Secret Values that cannot be used as table keys.
-    -- We pcall the entire per-source block and skip on failure.
-    -- Full data becomes available when combat ends.
+    local imported = 0
+
     if session.combatSources then
         for _, source in ipairs(session.combatSources) do
-            local ok, err = pcall(function()
-                -- sourceGUID / name: secret during restricted combat
-                -- classFilename / isLocalPlayer: NeverSecret
+            local srcOk = pcall(function()
                 local guid = source.sourceGUID
                 local name = source.name or "Unbekannt"
                 local class = source.classFilename or "UNKNOWN"
 
-                -- Force a table-key test: this throws if guid is secret
+                -- Throws if guid is a secret value (can't be used as table key)
                 local _ = ({[guid] = true})[guid]
 
                 local amount = 0
@@ -179,8 +150,8 @@ function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
                         player.healing = amount
                     end
                 end
+                imported = imported + 1
             end)
-            -- If pcall failed, source has secret fields – skip silently
         end
     end
 
@@ -192,14 +163,60 @@ function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
         end
     end)
 
+    return imported
+end
+
+function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
+    if not C_DamageMeter then return end
+
+    local isDamage  = (meterType == Enum.DamageMeterType.DamageDone)
+    local isHealing = (meterType == Enum.DamageMeterType.HealingDone)
+    if not isDamage and not isHealing then return end
+
+    -- New session → new combat segment
+    if sessionID ~= lastSessionID then
+        if self.inCombat then
+            self:EndCombat()
+        end
+
+        lastSessionID = sessionID
+        activeSessionID = sessionID
+        self:StartCombat()
+
+        -- Try to get the session name (encounter name)
+        pcall(function()
+            local sessions = C_DamageMeter.GetAvailableCombatSessions()
+            if sessions then
+                for _, s in ipairs(sessions) do
+                    if s.sessionID == sessionID and s.name and s.name ~= "" then
+                        if self.currentSegment then
+                            self.currentSegment.name = s.name
+                        end
+                        break
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Try to import (may silently skip sources due to secrets during combat)
+    self:ImportDamageMeterSession(sessionID, meterType)
     self.displayDirty = true
 end
 
 function EDM:OnDamageMeterCurrentSessionChanged()
+    -- Combat ended → secrets are lifted → re-import the completed session
+    if activeSessionID and self.currentSegment then
+        self:ImportDamageMeterSession(activeSessionID, Enum.DamageMeterType.DamageDone)
+        self:ImportDamageMeterSession(activeSessionID, Enum.DamageMeterType.HealingDone)
+        self.displayDirty = true
+    end
+
     if self.inCombat then
         self:EndCombat()
-        lastSessionID = nil
     end
+    lastSessionID = nil
+    activeSessionID = nil
 end
 
 ------------------------------------------------------------------------
