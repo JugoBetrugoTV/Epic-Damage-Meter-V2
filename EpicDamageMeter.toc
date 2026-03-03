@@ -9,15 +9,18 @@
 ## IconTexture: Interface\Icons\Ability_Warrior_Bladestorm
 ## Category: Combat
 
-# Libraries (embedded via .pkgmeta / fetch_libs.sh)
+# Libraries
 Libs\embeds.xml
 
-# Compatibility layer (must load before all modules)
+# Compatibility layer
 Compat.lua
 
-# Core addon
+# Core addon (version-agnostic)
 Core.lua
 DataStore.lua
 CombatLog.lua
 Display.lua
 Config.lua
+
+# Version module: Retail (fallback TOC = Retail)
+Modules\Retail.lua

@@ -7,11 +7,19 @@
 ## DefaultState: enabled
 ## SavedVariables: EpicDamageMeterDB
 
+# Libraries
 Libs\embeds.xml
 
+# Compatibility layer
 Compat.lua
+
+# Core addon (version-agnostic)
 Core.lua
 DataStore.lua
 CombatLog.lua
 Display.lua
 Config.lua
+
+# Version module: TBC Anniversary Edition
+Modules\DropdownMenu.lua
+Modules\TBC.lua

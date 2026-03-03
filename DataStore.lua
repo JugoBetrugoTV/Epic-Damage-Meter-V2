@@ -247,20 +247,10 @@ function EDM:GetPetOwner(petGUID)
 end
 
 function EDM:ResolvePetOwner(petGUID, petName, petFlags)
-    -- Try cached lookup first
-    local owner = self:GetPetOwner(petGUID)
-    if owner then return owner end
-
-    -- Try tooltip scanning via GUID
-    if petGUID then
-        local ownerGUID = C_PlayerInfo and C_PlayerInfo.GetOwnerForPet and C_PlayerInfo.GetOwnerForPet(petGUID)
-        if ownerGUID then
-            self:SetPetOwner(petGUID, ownerGUID)
-            return ownerGUID
-        end
-    end
-
-    return nil
+    -- Base implementation: cache-only lookup.
+    -- Version modules (Retail.lua, MoP.lua) override this with
+    -- platform-specific resolution (e.g. C_PlayerInfo.GetOwnerForPet).
+    return self:GetPetOwner(petGUID)
 end
 
 ------------------------------------------------------------------------

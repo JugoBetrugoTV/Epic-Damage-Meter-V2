@@ -12,13 +12,15 @@ local _, EDM = ...
 local combatFrame = CreateFrame("Frame")
 
 function EDM:RegisterCombatLog()
+    -- Core events (all versions)
     combatFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
     combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    combatFrame:RegisterEvent("ENCOUNTER_START")
-    combatFrame:RegisterEvent("ENCOUNTER_END")
     combatFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     combatFrame:RegisterEvent("UNIT_PET")
+
+    -- Version-specific events (e.g. ENCOUNTER_START/END in Retail & MoP)
+    self:RegisterVersionEvents(combatFrame)
 
     combatFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "COMBAT_LOG_EVENT_UNFILTERED" then
@@ -30,18 +32,13 @@ function EDM:RegisterCombatLog()
             C_Timer.After(0.5, function()
                 EDM:EndCombat()
             end)
-        elseif event == "ENCOUNTER_START" then
-            local encounterID, encounterName = ...
-            EDM:StartCombat()
-            if EDM.currentSegment and encounterName then
-                EDM.currentSegment.name = encounterName
-            end
-        elseif event == "ENCOUNTER_END" then
-            EDM:EndCombat()
         elseif event == "GROUP_ROSTER_UPDATE" then
             EDM:ScanGroupMembers()
         elseif event == "UNIT_PET" then
             EDM:ScanPets()
+        else
+            -- Delegate to version module (ENCOUNTER_START, ENCOUNTER_END, etc.)
+            EDM:HandleVersionEvent(event, ...)
         end
     end)
 
