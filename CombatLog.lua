@@ -125,17 +125,20 @@ function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
         self:StartCombat()
 
         -- Try to get the session name (encounter name)
-        local sessions = C_DamageMeter.GetAvailableCombatSessions()
-        if sessions then
-            for _, s in ipairs(sessions) do
-                if s.sessionID == sessionID and s.name and s.name ~= "" then
-                    if self.currentSegment then
-                        self.currentSegment.name = s.name
+        -- Session fields may also be secret during restricted combat
+        pcall(function()
+            local sessions = C_DamageMeter.GetAvailableCombatSessions()
+            if sessions then
+                for _, s in ipairs(sessions) do
+                    if s.sessionID == sessionID and s.name and s.name ~= "" then
+                        if self.currentSegment then
+                            self.currentSegment.name = s.name
+                        end
+                        break
                     end
-                    break
                 end
             end
-        end
+        end)
     end
 
     -- Query the session data
@@ -146,35 +149,48 @@ function EDM:OnDamageMeterSessionUpdated(meterType, sessionID)
     if not segment then return end
 
     -- Import source data into our segment
+    -- During restricted combat (boss encounters, M+), sourceGUID and name
+    -- are Secret Values that cannot be used as table keys.
+    -- We pcall the entire per-source block and skip on failure.
+    -- Full data becomes available when combat ends.
     if session.combatSources then
         for _, source in ipairs(session.combatSources) do
-            local guid = source.sourceGUID or ("creature:" .. tostring(source.sourceCreatureID or 0))
-            local name = source.name or "Unbekannt"
-            local class = source.classFilename or "UNKNOWN"
+            local ok, err = pcall(function()
+                -- sourceGUID / name: secret during restricted combat
+                -- classFilename / isLocalPlayer: NeverSecret
+                local guid = source.sourceGUID
+                local name = source.name or "Unbekannt"
+                local class = source.classFilename or "UNKNOWN"
 
-            -- pcall: totalAmount may be a secret value during restricted combat
-            local amount = 0
-            local amtOk, amtVal = pcall(function() return source.totalAmount + 0 end)
-            if amtOk then
-                amount = amtVal
-            end
+                -- Force a table-key test: this throws if guid is secret
+                local _ = ({[guid] = true})[guid]
 
-            local player = self:GetOrCreatePlayer(segment, guid, name, class)
-            if player then
-                if isDamage then
-                    player.damage = amount
-                elseif isHealing then
-                    player.healing = amount
+                local amount = 0
+                local amtOk, amtVal = pcall(function() return source.totalAmount + 0 end)
+                if amtOk then
+                    amount = amtVal
                 end
-            end
+
+                local player = self:GetOrCreatePlayer(segment, guid, name, class)
+                if player then
+                    if isDamage then
+                        player.damage = amount
+                    elseif isHealing then
+                        player.healing = amount
+                    end
+                end
+            end)
+            -- If pcall failed, source has secret fields – skip silently
         end
     end
 
-    -- Update segment duration from server data
-    local durOk, dur = pcall(function() return session.durationSeconds + 0 end)
-    if durOk and dur and dur > 0 then
-        segment.startTime = GetTime() - dur
-    end
+    -- Update segment duration from server data (may be secret)
+    pcall(function()
+        local dur = session.durationSeconds + 0
+        if dur > 0 then
+            segment.startTime = GetTime() - dur
+        end
+    end)
 
     self.displayDirty = true
 end
