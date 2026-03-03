@@ -132,17 +132,38 @@ function EDM:ImportSessionSources(session, meterType, segment)
     if not session or not session.combatSources then return 0 end
     if not segment then return 0 end
 
+    local playerGUID = UnitGUID("player")
+    local playerName = UnitName("player")
     local imported = 0
 
     for _, source in ipairs(session.combatSources) do
-        pcall(function()
-            local guid = source.sourceGUID
-            local name = source.name or "Unbekannt"
-            local class = source.classFilename or "UNKNOWN"
+        -- classFilename and isLocalPlayer are NeverSecret — always readable
+        local class = source.classFilename or "UNKNOWN"
+        local isLocal = source.isLocalPlayer
 
-            -- Throws if guid is a secret value
+        -- Try to read GUID and name (may be secret during combat)
+        local guid, name
+        local guidOK = pcall(function()
+            guid = source.sourceGUID
+            -- Test that guid is a real value, not a secret
             local _ = ({[guid] = true})[guid]
+        end)
 
+        if guidOK and guid then
+            -- GUID readable — try name too
+            pcall(function() name = source.name end)
+            name = name or "Unbekannt"
+        elseif isLocal then
+            -- GUID is secret but this is us — use Unit API
+            guid = playerGUID
+            name = playerName or "Spieler"
+        else
+            -- Can't identify this source at all, skip
+            guid = nil
+        end
+
+        if guid then
+            -- Read amount (may be secret)
             local amount = 0
             pcall(function() amount = source.totalAmount + 0 end)
 
@@ -155,7 +176,7 @@ function EDM:ImportSessionSources(session, meterType, segment)
                 end
             end
             imported = imported + 1
-        end)
+        end
     end
 
     -- Duration
@@ -467,5 +488,188 @@ function EDM:OnCombatLogEvent()
         end
 
         self:RecordHealing(sourceGUID, sourceName, resolvedClass, spellId, spellName, effectiveHealing, overhealing, critical)
+    end
+end
+
+------------------------------------------------------------------------
+-- Debug & manual reimport (Midnight diagnostics)
+------------------------------------------------------------------------
+
+function EDM:DebugDamageMeter()
+    self:Print("=== EDM Debug ===")
+    self:Print("isMidnight: " .. tostring(isMidnight))
+    self:Print("C_DamageMeter: " .. tostring(C_DamageMeter ~= nil))
+    self:Print("inCombat: " .. tostring(self.inCombat))
+    self:Print("activeSessionID: " .. tostring(activeSessionID))
+    self:Print("lastSessionID: " .. tostring(lastSessionID))
+    self:Print("pendingReimport: " .. tostring(pendingReimport))
+
+    if self.currentSegment then
+        local count = 0
+        for _ in pairs(self.currentSegment.players) do count = count + 1 end
+        self:Print("currentSegment: " .. self.currentSegment.name .. " (" .. count .. " Spieler)")
+    else
+        self:Print("currentSegment: nil")
+    end
+
+    self:Print("segments history: " .. tostring(#self.segments))
+
+    if not C_DamageMeter then
+        self:Print("C_DamageMeter nicht verfuegbar!")
+        return
+    end
+
+    -- Check available enums
+    self:Print("--- Enums ---")
+    if Enum and Enum.DamageMeterType then
+        for k, v in pairs(Enum.DamageMeterType) do
+            self:Print("  DamageMeterType." .. tostring(k) .. " = " .. tostring(v))
+        end
+    else
+        self:Print("  Enum.DamageMeterType FEHLT!")
+    end
+
+    if Enum and Enum.DamageMeterSessionType then
+        for k, v in pairs(Enum.DamageMeterSessionType) do
+            self:Print("  DamageMeterSessionType." .. tostring(k) .. " = " .. tostring(v))
+        end
+    else
+        self:Print("  Enum.DamageMeterSessionType FEHLT!")
+    end
+
+    -- Check available sessions
+    self:Print("--- Sessions ---")
+    local ok, sessions = pcall(C_DamageMeter.GetAvailableCombatSessions)
+    if ok and sessions then
+        self:Print("  Anzahl: " .. #sessions)
+        for i, s in ipairs(sessions) do
+            local name = "?"
+            pcall(function() name = s.name end)
+            local sid = "?"
+            pcall(function() sid = tostring(s.sessionID) end)
+            local stype = "?"
+            pcall(function() stype = tostring(s.sessionType) end)
+            self:Print("  [" .. i .. "] ID=" .. sid .. " type=" .. stype .. " name=" .. tostring(name))
+        end
+    elseif ok then
+        self:Print("  GetAvailableCombatSessions returned nil")
+    else
+        self:Print("  GetAvailableCombatSessions ERROR: " .. tostring(sessions))
+    end
+
+    -- Try reading session data
+    self:Print("--- Session Data Test ---")
+    local sessionTypes = {}
+    if Enum.DamageMeterSessionType then
+        for k, v in pairs(Enum.DamageMeterSessionType) do
+            table.insert(sessionTypes, {name = k, val = v})
+        end
+    end
+
+    for _, st in ipairs(sessionTypes) do
+        local ok2, session = pcall(C_DamageMeter.GetCombatSessionFromType, st.val, Enum.DamageMeterType.DamageDone)
+        if ok2 and session then
+            local numSources = 0
+            if session.combatSources then
+                numSources = #session.combatSources
+            end
+            self:Print("  " .. st.name .. "/Damage: " .. numSources .. " sources")
+
+            -- Try reading first source
+            if numSources > 0 then
+                local src = session.combatSources[1]
+                local info = "    src[1]: "
+                -- isLocalPlayer (NeverSecret)
+                info = info .. "isLocal=" .. tostring(src.isLocalPlayer)
+                -- classFilename (NeverSecret)
+                info = info .. " class=" .. tostring(src.classFilename)
+                -- sourceGUID (secret in combat)
+                local guidStr = "<secret>"
+                pcall(function()
+                    local g = src.sourceGUID
+                    local _ = ({[g] = true})[g]
+                    guidStr = tostring(g)
+                end)
+                info = info .. " guid=" .. guidStr
+                -- name (secret in combat)
+                local nameStr = "<secret>"
+                pcall(function()
+                    local n = src.name
+                    local _ = ({[n] = true})[n]
+                    nameStr = tostring(n)
+                end)
+                info = info .. " name=" .. nameStr
+                -- totalAmount (secret in combat)
+                local amtStr = "<secret>"
+                pcall(function() amtStr = tostring(src.totalAmount + 0) end)
+                info = info .. " amount=" .. amtStr
+
+                self:Print(info)
+            end
+        elseif ok2 then
+            self:Print("  " .. st.name .. "/Damage: nil")
+        else
+            self:Print("  " .. st.name .. "/Damage ERROR: " .. tostring(session))
+        end
+    end
+
+    self:Print("=== Ende Debug ===")
+end
+
+function EDM:ManualReimport()
+    if not C_DamageMeter then
+        self:Print("C_DamageMeter nicht verfuegbar!")
+        return
+    end
+
+    -- Ensure we have a segment to import into
+    if not self.currentSegment then
+        self:StartCombat()
+        self.inCombat = false -- don't keep combat state, just need a segment
+    end
+
+    local segment = self.currentSegment
+    local totalImported = 0
+
+    -- Try all session types
+    local sessionTypes = {}
+    if Enum.DamageMeterSessionType then
+        for k, v in pairs(Enum.DamageMeterSessionType) do
+            table.insert(sessionTypes, {name = k, val = v})
+        end
+    end
+
+    for _, st in ipairs(sessionTypes) do
+        for _, meterType in ipairs({Enum.DamageMeterType.DamageDone, Enum.DamageMeterType.HealingDone}) do
+            local n = self:TryImportByType(st.val, meterType, segment)
+            if n > 0 then
+                local mtName = (meterType == Enum.DamageMeterType.DamageDone) and "Damage" or "Healing"
+                self:Print("Import " .. st.name .. "/" .. mtName .. ": " .. n .. " Quellen")
+                totalImported = totalImported + n
+            end
+        end
+    end
+
+    -- Also try by activeSessionID if we have one
+    if activeSessionID then
+        for _, meterType in ipairs({Enum.DamageMeterType.DamageDone, Enum.DamageMeterType.HealingDone}) do
+            local n = self:TryImportByID(activeSessionID, meterType, segment)
+            if n > 0 then
+                local mtName = (meterType == Enum.DamageMeterType.DamageDone) and "Damage" or "Healing"
+                self:Print("Import byID/" .. mtName .. ": " .. n .. " Quellen")
+                totalImported = totalImported + n
+            end
+        end
+    end
+
+    if totalImported > 0 then
+        self.displayDirty = true
+        self:Print("Reimport fertig: " .. totalImported .. " Quellen importiert.")
+    else
+        self:Print("Reimport: Keine Daten gefunden oder alle Werte secret.")
+    end
+
+    if self.mainFrame then
+        self:UpdateDisplay()
     end
 end

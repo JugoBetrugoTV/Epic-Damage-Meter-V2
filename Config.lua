@@ -427,6 +427,10 @@ function EDM:RegisterSlashCommands()
             self:ReportToChat(channel)
         elseif cmd == "config" or cmd == "options" or cmd == "opt" then
             self:OpenConfig()
+        elseif cmd == "debug" then
+            self:DebugDamageMeter()
+        elseif cmd == "reimport" then
+            self:ManualReimport()
         elseif cmd == "help" then
             self:PrintHelp()
         else
@@ -551,5 +555,7 @@ function EDM:PrintHelp()
     self:Print("/edm hps - HPS-Ansicht")
     self:Print("/edm report <say|party|raid|guild> - Report im Chat")
     self:Print("/edm config - Optionspanel oeffnen")
+    self:Print("/edm debug - Diagnose C_DamageMeter")
+    self:Print("/edm reimport - Manuell Daten importieren")
     self:Print("/edm help - Diese Hilfe anzeigen")
 end
