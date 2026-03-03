@@ -1,3 +1,6 @@
-# Optional libraries (downloaded manually from CurseForge, not in repo)
-Libs/LibSharedMedia-3.0/
-Libs/LibDBIcon-1.0/
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

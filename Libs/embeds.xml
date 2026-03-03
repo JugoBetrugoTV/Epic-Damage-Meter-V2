@@ -14,12 +14,11 @@
     <Include file="AceEvent-3.0\AceEvent-3.0.xml"/>
     <Include file="AceConsole-3.0\AceConsole-3.0.xml"/>
 
-    <!-- Data Broker for minimap integration -->
-    <Script file="LibDataBroker-1.1\LibDataBroker-1.1.lua"/>
+    <!-- Shared Media for bar textures and fonts -->
+    <Include file="LibSharedMedia-3.0\lib.xml"/>
 
-    <!-- Optional libraries (added by .pkgmeta during CurseForge packaging):
-         - LibSharedMedia-3.0\lib.xml   (bar textures and fonts)
-         - LibDBIcon-1.0\lib.xml        (minimap button)
-         To use locally, run fetch_libs.sh or download from CurseForge. -->
+    <!-- Data Broker + minimap icon -->
+    <Script file="LibDataBroker-1.1\LibDataBroker-1.1.lua"/>
+    <Include file="LibDBIcon-1.0\lib.xml"/>
 
 </Ui>
