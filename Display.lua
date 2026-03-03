@@ -499,6 +499,42 @@ function EDM:ShowBarTooltip(bar)
 end
 
 ------------------------------------------------------------------------
+-- Live config refresh methods (called from Config.lua setters)
+------------------------------------------------------------------------
+
+--- Refresh only the data display (view mode, rank, pets, etc.)
+function EDM:RefreshDisplay()
+    self:UpdateDisplay()
+end
+
+--- Refresh bar appearance (texture, font, height, spacing).
+-- Re-applies all visual settings from db to existing bars.
+function EDM:RefreshBars()
+    if not self.bars then return end
+    local db = self.db
+
+    for _, bar in ipairs(self.bars) do
+        -- Update statusbar texture
+        bar:SetStatusBarTexture(db.barTexture)
+        if bar.bg then
+            bar.bg:SetTexture(db.barTexture)
+        end
+
+        -- Update font
+        if bar.leftText then
+            bar.leftText:SetFont(db.font, db.fontSize, "OUTLINE")
+        end
+        if bar.rightText then
+            bar.rightText:SetFont(db.font, db.fontSize, "OUTLINE")
+        end
+    end
+
+    -- Rebuild bar layout (height/spacing may have changed)
+    self:CreateBars()
+    self:UpdateDisplay()
+end
+
+------------------------------------------------------------------------
 -- Context menu (right-click)
 -- Implementation is provided by the version module:
 --   Retail  → Modules/Retail.lua       (MenuUtil)

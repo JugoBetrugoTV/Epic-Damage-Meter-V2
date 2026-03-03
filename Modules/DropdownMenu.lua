@@ -95,6 +95,13 @@ function EDM:ShowContextMenu()
             info.func = function() EDM:ReportToChat("say") end
             UIDropDownMenu_AddButton(info, level)
 
+            -- Options
+            info = UIDropDownMenu_CreateInfo()
+            info.text = "Optionen"
+            info.notCheckable = true
+            info.func = function() EDM:OpenConfig() end
+            UIDropDownMenu_AddButton(info, level)
+
             -- Close
             info = UIDropDownMenu_CreateInfo()
             info.text = "Schliessen"

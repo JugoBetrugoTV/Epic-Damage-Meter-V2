@@ -83,6 +83,10 @@ function EDM:ShowContextMenu()
         rootDescription:CreateButton("Chat-Report", function()
             EDM:ReportToChat("say")
         end)
+
+        rootDescription:CreateButton("Optionen", function()
+            EDM:OpenConfig()
+        end)
     end)
 end
 

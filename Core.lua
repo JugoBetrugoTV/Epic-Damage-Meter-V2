@@ -61,49 +61,53 @@ EDM.LDBIcon    = nil   -- LibDBIcon-1.0
 
 EDM.DEFAULTS = {
     profile = {
-        point         = "RIGHT",
-        relPoint      = "RIGHT",
-        x             = -20,
-        y             = 0,
-        width         = 260,
-        height        = 300,
-        numBars       = 15,
-        barHeight     = 18,
-        barSpacing    = 1,
-        barTexture    = "Interface\\TargetingFrame\\UI-StatusBar",
-        font          = "Fonts\\FRIZQT__.TTF",
-        fontSize      = 10,
-        locked        = false,
-        shown         = true,
-        currentView   = 1,     -- VIEW_DAMAGE
-        showRank      = true,
-        mergePets     = true,
-        minimap       = { hide = false },
-        classColors   = true,
+        point           = "RIGHT",
+        relPoint        = "RIGHT",
+        x               = -20,
+        y               = 0,
+        width           = 260,
+        height          = 300,
+        numBars         = 15,
+        barHeight       = 18,
+        barSpacing      = 1,
+        barTexture      = "Interface\\TargetingFrame\\UI-StatusBar",
+        barTextureName  = "Blizzard",
+        font            = "Fonts\\FRIZQT__.TTF",
+        fontName        = "Friz Quadrata TT",
+        fontSize        = 10,
+        locked          = false,
+        shown           = true,
+        currentView     = 1,     -- VIEW_DAMAGE
+        showRank        = true,
+        mergePets       = true,
+        minimap         = { hide = false },
+        classColors     = true,
     },
 }
 
 -- Flat defaults fallback (when AceDB is not available)
 EDM.DEFAULTS_FLAT = {
-    point         = "RIGHT",
-    relPoint      = "RIGHT",
-    x             = -20,
-    y             = 0,
-    width         = 260,
-    height        = 300,
-    numBars       = 15,
-    barHeight     = 18,
-    barSpacing    = 1,
-    barTexture    = "Interface\\TargetingFrame\\UI-StatusBar",
-    font          = "Fonts\\FRIZQT__.TTF",
-    fontSize      = 10,
-    locked        = false,
-    shown         = true,
-    currentView   = 1,
-    showRank      = true,
-    mergePets     = true,
-    minimap       = { hide = false },
-    classColors   = true,
+    point           = "RIGHT",
+    relPoint        = "RIGHT",
+    x               = -20,
+    y               = 0,
+    width           = 260,
+    height          = 300,
+    numBars         = 15,
+    barHeight       = 18,
+    barSpacing      = 1,
+    barTexture      = "Interface\\TargetingFrame\\UI-StatusBar",
+    barTextureName  = "Blizzard",
+    font            = "Fonts\\FRIZQT__.TTF",
+    fontName        = "Friz Quadrata TT",
+    fontSize        = 10,
+    locked          = false,
+    shown           = true,
+    currentView     = 1,
+    showRank        = true,
+    mergePets       = true,
+    minimap         = { hide = false },
+    classColors     = true,
 }
 
 ------------------------------------------------------------------------
@@ -236,6 +240,7 @@ function EDM:OnPlayerLogin()
     self:CreateDisplay()
     self:RegisterCombatLog()
     self:RegisterSlashCommands()
+    self:InitConfig()
     InitMinimapButton()
 
     local versionInfo
